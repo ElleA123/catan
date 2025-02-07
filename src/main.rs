@@ -80,6 +80,8 @@ impl Display for Hex {
 #[derive(Debug, Clone, Copy)]
 struct Hand([usize; 5]);
 
+const STARTING_PLAYER_HAND: Hand = Hand([4, 4, 2, 2, 0]);
+
 const STARTING_BANK_HAND: Hand = Hand([19, 19, 19, 19, 19]);
 const STARTING_DV_BANK: [DVCard; 25] = [
     DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight,
@@ -316,8 +318,10 @@ impl Board {
     }
 
     fn can_place_settlement(&self, r: usize, q: usize, corner: usize) -> bool {
-        // TODO: add distance reqs
         self.structures[r][q][corner].is_none()
+        && neighboring_corners(r, q, corner).into_iter().all(
+            |(r_, q_, c_)| self.structures[r_][q_][c_].is_none()
+        )
     }
 
     // fn place_settlement_safe(&mut self, r: usize, q: usize, corner: usize, color: Color) -> bool {
@@ -425,7 +429,7 @@ impl Player {
             is_human,
             board,
             vps: 0,
-            hand: Hand::new(),
+            hand: STARTING_PLAYER_HAND,
             dvs: Hand::new(),
             new_dvs: Hand::new(),
             knights: 0,
@@ -562,21 +566,21 @@ fn get_s(r: usize, q: usize) -> usize {
     6 - r - q
 }
 
-fn neighbors(r: usize, q: usize) -> Vec<(usize, usize)> {
-    let mut neighbors = Vec::new();
-    for dir in DIRS {
-        if is_on_board(
-            (r as isize + dir.0) as usize,
-            (q as isize + dir.1) as usize
-        ) {
-            neighbors.push((
-                (r as isize + dir.0) as usize,
-                (q as isize + dir.1) as usize)
-            );
-        }
-    }
-    neighbors
-}
+// fn neighbors(r: usize, q: usize) -> Vec<(usize, usize)> {
+//     let mut neighbors = Vec::new();
+//     for dir in DIRS {
+//         if is_on_board(
+//             (r as isize + dir.0) as usize,
+//             (q as isize + dir.1) as usize
+//         ) {
+//             neighbors.push((
+//                 (r as isize + dir.0) as usize,
+//                 (q as isize + dir.1) as usize)
+//             );
+//         }
+//     }
+//     neighbors
+// }
 
 fn get_dup_corners(r: usize, q: usize, corner: usize) -> Vec<(usize, usize, usize)> {
     let mut dups = vec![(r, q, corner)];
@@ -589,6 +593,10 @@ fn get_dup_corners(r: usize, q: usize, corner: usize) -> Vec<(usize, usize, usiz
         dups.push((neighbor2.0, neighbor2.1, (corner + 4) % 6));
     }
     dups
+}
+
+fn neighboring_corners(r: usize, q: usize, corner: usize) -> Vec<(usize, usize, usize)> {
+    get_dup_corners(r, q, corner).into_iter().map(|(_, _, c)| (r, q, (c + 1) % 6)).collect()
 }
 
 fn get_dup_edges(r: usize, q: usize, edge: usize) -> Vec<(usize, usize, usize)> {
@@ -662,5 +670,16 @@ fn play_game(num_players: usize) {
 
 fn main() {
     let num_players = 4;
-    play_game(num_players);
+    // play_game(num_players);
+
+    let mut rng = rand::rng();
+    let board = Rc::new(RefCell::new(Board::new(num_players, &mut rng)));
+    let mut players = Vec::with_capacity(num_players);
+    for i in 0..num_players {
+        players.push(Player::new(Color::from(i), true, board.clone()));
+    }
+
+    println!("{}", players[0].build_settlement(2, 2, 0));
+    println!("{}", players[1].build_settlement(2, 2, 2));
+    println!("{}", players[2].build_settlement(1, 2, 0));
 }
