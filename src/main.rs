@@ -1,3 +1,4 @@
+use std::{cell::RefCell, rc::Rc};
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
@@ -292,7 +293,7 @@ impl Board {
         }
     }
 
-    fn can_place_road(&mut self, r: usize, q: usize, edge: usize) -> bool {
+    fn can_place_road(&self, r: usize, q: usize, edge: usize) -> bool {
         self.structures[r][q][edge].is_none()
     }
 
@@ -313,7 +314,7 @@ impl Board {
         }
     }
 
-    fn can_place_settlement(&mut self, r: usize, q: usize, corner: usize) -> bool {
+    fn can_place_settlement(&self, r: usize, q: usize, corner: usize) -> bool {
         // TODO: add distance reqs
         self.structures[r][q][corner].is_none()
     }
@@ -402,9 +403,9 @@ enum DVCard {
     VP=4
 }
 
-struct Player<'a> {
+struct Player {
     color: Color,
-    board: &'a mut Board,
+    board: Rc<RefCell<Board>>,
     vps: usize,
     hand: Hand,
     dvs: Hand,
@@ -415,8 +416,8 @@ struct Player<'a> {
     city_pool: usize,
 }
 
-impl Player<'_> {
-    fn new(color: Color, board: &mut Board) -> Player {
+impl Player {
+    fn new(color: Color, board: Rc<RefCell<Board>>) -> Player {
         Player {
             color,
             board,
@@ -433,13 +434,13 @@ impl Player<'_> {
 
     fn get_resources(&mut self, got: Hand) {
         self.hand.add(got);
-        self.board.bank.disc_max(got);
+        self.board.borrow_mut().bank.disc_max(got);
     }
 
     fn disc_resources(&mut self, lost: Hand) -> bool {
         if self.hand.can_disc(lost) {
             self.hand.disc(lost);
-            self.board.bank.add(lost);
+            self.board.borrow_mut().bank.add(lost);
             true
         } else {
             false
@@ -447,9 +448,10 @@ impl Player<'_> {
     }
 
     fn build_road(&mut self, r: usize, q: usize, edge: usize) -> bool {
-        if self.board.can_place_road(r, q, edge) && self.hand.can_disc(ROAD_HAND) && self.road_pool > 0 {
+        let can_place_road = self.board.borrow().can_place_road(r, q, edge);
+        if can_place_road && self.hand.can_disc(ROAD_HAND) && self.road_pool > 0 {
             self.disc_resources(ROAD_HAND);
-            self.board.place_road(r, q, edge, self.color);
+            self.board.borrow_mut().place_road(r, q, edge, self.color);
             self.road_pool -= 1;
             true
         } else {
@@ -461,9 +463,10 @@ impl Player<'_> {
         // println!("works on board: {}", board.can_place_settlement(r, q, corner));
         // println!("has cards: {}", self.hand.can_disc(SETTLEMENT_HAND));
         // println!("settlements available: {}", self.settlement_pool > 0);
-        if self.board.can_place_settlement(r, q, corner) && self.hand.can_disc(SETTLEMENT_HAND) && self.settlement_pool > 0 {
+        let can_place_settlement = self.board.borrow().can_place_settlement(r, q, corner);
+        if can_place_settlement && self.hand.can_disc(SETTLEMENT_HAND) && self.settlement_pool > 0 {
             self.disc_resources(SETTLEMENT_HAND);
-            self.board.place_settlement(r, q, corner, self.color);
+            self.board.borrow_mut().place_settlement(r, q, corner, self.color);
             self.settlement_pool -= 1;
             true
         } else {
@@ -472,22 +475,23 @@ impl Player<'_> {
     }
 
     fn upgrade_to_city(&mut self, r: usize, q: usize, corner: usize) -> bool {
-        if let Some(s) = self.board.structures[r][q][corner]  {
-            if s.structure_type == StructureType::Settlement && s.color == self.color && self.hand.can_disc(CITY_HAND) {
-                self.disc_resources(CITY_HAND);
-                self.board.upgrade_to_city(r, q, corner);
-                self.city_pool -= 1;
-                self.settlement_pool += 1;
-                return true;
-            }
+        let Some(s) = self.board.borrow().structures[r][q][corner] else { return false; };
+        if s.structure_type == StructureType::Settlement && s.color == self.color && self.hand.can_disc(CITY_HAND) {
+            self.disc_resources(CITY_HAND);
+            self.board.borrow_mut().upgrade_to_city(r, q, corner);
+            self.city_pool -= 1;
+            self.settlement_pool += 1;
+            true
+        } else {
+            false
         }
-        return false;
     }
 
     fn buy_dv_card(&mut self, r: usize, q: usize, corner: usize) -> bool {
-        if self.hand.can_disc(DV_CARD_HAND) && self.board.dv_bank.len() > 0 {
+        let can_draw = self.board.borrow().dv_bank.len() > 0;
+        if self.hand.can_disc(DV_CARD_HAND) && can_draw {
             self.disc_resources(DV_CARD_HAND);
-            self.new_dvs.add(Hand::from_card(self.board.draw_dv_card() as usize));
+            self.new_dvs.add(Hand::from_card(self.board.borrow_mut().draw_dv_card() as usize));
             true
         } else {
             false
@@ -552,26 +556,23 @@ fn get_dup_edges(r: usize, q: usize, edge: usize) -> Vec<(usize, usize, usize)> 
     dups
 }
 
-fn play_game(num_players: usize) {
+fn main() {
+    let num_players = 4;
+
     let mut rng = rand::rng();
-    let mut board = Board::new(num_players, &mut rng);
+    let board = Rc::new(RefCell::new(Board::new(num_players, &mut rng)));
     let mut players = Vec::with_capacity(num_players);
     for i in 0..num_players {
-        players.push(Player::new(Color::from(i), &mut board));
+        players.push(Player::new(Color::from(i), board.clone()));
     }
-}
 
-fn main() {
-    
+    println!("{}", board.borrow());
 
-    let mut board = Board::new(4, &mut rng);
-    println!("{}", board);
-
-    let mut player = Player::new(Color::Red, &mut board);
+    let player = &mut players[0];
     player.hand.add(Hand([11, 11, 11, 11, 0]));
     println!("Built? {}", player.build_settlement(2, 2, 0));
     println!("Built? {}", player.build_settlement(2, 2, 0));
     println!("Upgraded? {}", player.upgrade_to_city(2, 2, 0));
 
-    println!("{:?}\n{:?}", player.hand, board.structures);
+    println!("{:?}\n{:?}", player.hand, board.borrow().structures);
 }
