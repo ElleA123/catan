@@ -1,4 +1,5 @@
 use std::{cell::RefCell, rc::Rc};
+use std::str::FromStr;
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
@@ -294,7 +295,7 @@ impl Board {
     }
 
     fn can_place_road(&self, r: usize, q: usize, edge: usize) -> bool {
-        self.structures[r][q][edge].is_none()
+        self.roads[r][q][edge].is_none()
     }
 
     // fn place_road_safe(&mut self, r: usize, q: usize, edge: usize, color: Color) -> bool {
@@ -405,6 +406,7 @@ enum DVCard {
 
 struct Player {
     color: Color,
+    is_human: bool,
     board: Rc<RefCell<Board>>,
     vps: usize,
     hand: Hand,
@@ -417,9 +419,10 @@ struct Player {
 }
 
 impl Player {
-    fn new(color: Color, board: Rc<RefCell<Board>>) -> Player {
+    fn new(color: Color, is_human: bool, board: Rc<RefCell<Board>>) -> Player {
         Player {
             color,
+            is_human,
             board,
             vps: 0,
             hand: Hand::new(),
@@ -497,6 +500,47 @@ impl Player {
             false
         }
     }
+
+    fn take_setup_turn(&mut self) {
+        if self.is_human {
+            loop {
+                let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
+                let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
+                let corner: usize = get_specific_input("corner: ", "it's a usize 0-6 silly! corner: ", |n| n < 6);
+                if self.board.borrow().can_place_settlement(r, q, corner) {
+                    println!("Placing settlement at ({}, {}, {})", r, q, corner);
+                    let conf = get_input("Type 'c' to confirm");
+                    if conf == "c" {
+                        self.board.borrow_mut().place_settlement(r, q, corner, self.color);
+                        break;
+                    }
+                } else {
+                    println!("You can't build there stupid! Let's try again...");
+                }
+            }
+            loop {
+                let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
+                let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
+                let edge: usize = get_specific_input("edge: ", "it's a usize 0-6 silly! edge: ", |n| n < 6);
+                if self.board.borrow().can_place_road(r, q, edge) {
+                    println!("Placing road at ({}, {}, {})", r, q, edge);
+                    let conf = get_input("Type 'c' to confirm");
+                    if conf == "c" {
+                        self.board.borrow_mut().place_road(r, q, edge, self.color);
+                        break;
+                    }
+                } else {
+                    println!("You can't build there stupid! Let's try again...");
+                }
+            }
+        }
+    }
+
+    fn take_turn(&mut self) {
+        if self.is_human {
+
+        }
+    }
 }
 
 //// Coordinate manipulation
@@ -551,28 +595,72 @@ fn get_dup_edges(r: usize, q: usize, edge: usize) -> Vec<(usize, usize, usize)> 
     let mut dups = vec![(r, q, edge)];
     let neighbor = ((r as isize + DIRS[edge].0) as usize, (q as isize + DIRS[edge].1) as usize);
     if is_on_board(neighbor.0, neighbor.1) {
-        dups.push((neighbor.0, neighbor.1, edge + 3));
+        dups.push((neighbor.0, neighbor.1, (edge + 3) % 6));
     }
     dups
 }
 
-fn main() {
-    let num_players = 4;
+fn get_input(msg: &str) -> String {
+    println!("{}", msg);
+    let mut buf = String::new();
+    std::io::stdin()
+        .read_line(&mut buf)
+        .expect("Failed to read line");
+    buf.trim().to_owned()
+}
 
+fn get_input_and_parse<T: FromStr>(msg: &str, err_msg: &str) -> T {
+    println!("{}", msg);
+    let mut buf = String::new();
+    loop {
+        buf.clear();
+        std::io::stdin()
+            .read_line(&mut buf)
+            .expect("Failed to read line");
+        if let Ok(t) = buf.trim().parse::<T>() {
+            return t;
+        }
+        println!("{}", err_msg);
+    }
+}
+
+fn get_specific_input<T, F>(msg: &str, err_msg: &str, pred: F) -> T where T: FromStr + Copy, F: Fn(T) -> bool {
+    println!("{}", msg);
+    let mut buf = String::new();
+    loop {
+        buf.clear();
+        std::io::stdin()
+            .read_line(&mut buf)
+            .expect("Failed to read line");
+        if let Ok(t) = buf.trim().parse::<T>() {
+            if pred(t) {
+                return t;
+            }
+        }
+        println!("{}", err_msg);
+    }
+}
+
+fn play_game(num_players: usize) {
     let mut rng = rand::rng();
     let board = Rc::new(RefCell::new(Board::new(num_players, &mut rng)));
     let mut players = Vec::with_capacity(num_players);
     for i in 0..num_players {
-        players.push(Player::new(Color::from(i), board.clone()));
+        players.push(Player::new(Color::from(i), true, board.clone()));
     }
 
-    println!("{}", board.borrow());
+    let mut turn = 0;
+    for id in (0..num_players) {
+        players[id].take_setup_turn();
+    }
+    for id in (0..num_players).rev() {
+        players[id].take_setup_turn();
+    }
+    let mut largest_army: Option<usize> = None;
+    let mut longest_road: Option<usize> = None;
+}
 
-    let player = &mut players[0];
-    player.hand.add(Hand([11, 11, 11, 11, 0]));
-    println!("Built? {}", player.build_settlement(2, 2, 0));
-    println!("Built? {}", player.build_settlement(2, 2, 0));
-    println!("Upgraded? {}", player.upgrade_to_city(2, 2, 0));
-
-    println!("{:?}\n{:?}", player.hand, board.borrow().structures);
+fn main() {
+    let num_players = 4;
+    play_game(num_players);
 }
