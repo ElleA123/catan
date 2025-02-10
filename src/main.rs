@@ -392,6 +392,13 @@ enum DVCard {
     VP=4
 }
 
+enum TurnStatus {
+    Finished,
+    Robber,
+    TradeOffer(Hand, Hand),
+    Win
+}
+
 struct Player {
     color: Color,
     is_human: bool,
@@ -524,10 +531,8 @@ impl Player {
         }
     }
 
-    fn take_turn(&mut self) {
-        if self.is_human {
-
-        }
+    fn take_turn(&mut self) -> TurnStatus {
+        TurnStatus::Finished
     }
 }
 
@@ -668,8 +673,7 @@ fn play_game(num_players: usize) {
         players.push(Player::new(Color::from(i), true, board.clone()));
     }
 
-    let mut turn = 0;
-    for id in (0..num_players) {
+    for id in 0..num_players {
         players[id].take_setup_turn();
     }
     for id in (0..num_players).rev() {
@@ -677,6 +681,33 @@ fn play_game(num_players: usize) {
     }
     let mut largest_army: Option<usize> = None;
     let mut longest_road: Option<usize> = None;
+    
+    let mut turn = 0;
+    let mut winner = 0;
+    loop {
+        match players[turn].take_turn() {
+            TurnStatus::Robber => {
+                turn += 1;
+                for _ in 1..num_players {
+                    players[turn].handle_robber();
+                    turn += 1;
+                }
+            },
+            TurnStatus::TradeOffer(give, get) => {
+                let mut responses: Vec<bool> = Vec::with_capacity(num_players);
+                turn += 1;
+                for _ in 1..num_players {
+                    responses.push(players[turn].respond_to_trade(give, get));
+                    turn += 1;
+                }
+            },
+            TurnStatus::Win => {
+                winner = turn;
+                break;
+            }
+            TurnStatus::Finished => turn += 1
+        }
+    }
 }
 
 fn main() {
