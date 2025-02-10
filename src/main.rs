@@ -80,7 +80,7 @@ impl Display for Hex {
 #[derive(Debug, Clone, Copy)]
 struct Hand([usize; 5]);
 
-const STARTING_PLAYER_HAND: Hand = Hand([4, 4, 2, 2, 0]);
+// const STARTING_PLAYER_HAND: Hand = Hand([4, 4, 2, 2, 0]);
 
 const STARTING_BANK_HAND: Hand = Hand([19, 19, 19, 19, 19]);
 const STARTING_DV_BANK: [DVCard; 25] = [
@@ -132,7 +132,7 @@ impl Hand {
     //     }
     // }
 
-    fn disc(&mut self, rhs: Hand) {
+    fn discard(&mut self, rhs: Hand) {
         for i in 0..self.0.len() {
             self[i] -= rhs[i];
         }
@@ -296,20 +296,26 @@ impl Board {
         }
     }
 
-    fn can_place_road(&self, r: usize, q: usize, edge: usize) -> bool {
-        self.roads[r][q][edge].is_none()
+    fn road_is_color(&self, r: usize, q: usize, edge: usize, color: Color) -> bool {
+        match self.roads[r][q][edge] {
+            Some(c) => c == color,
+            None => false
+        }
     }
 
-    // fn place_road_safe(&mut self, r: usize, q: usize, edge: usize, color: Color) -> bool {
-    //     if self.can_place_road(r, q, edge) {
-    //         for (r, q, e) in get_dup_edges(r, q, edge) {
-    //             self.roads[r][q][e] = Some(color);
-    //         }
-    //         true
-    //     } else {
-    //         false
-    //     }
+    // fn get_players_roads<'a>(&'a self, color: Color) -> impl Iterator<Item = (usize, usize, usize)> + 'a {
+    //     BOARD_COORDS.into_iter().flat_map(|(r, q)| (0..6).map(move |e| (r, q, e)))
+    //     .filter(move |&(r, q, e)|self.road_is_color(r, q, e, color))
     // }
+
+    fn can_place_road(&self, r: usize, q: usize, edge: usize, color: Color) -> bool {
+        self.roads[r][q][edge].is_none()
+        && edge_edge_neighbors(r, q, edge).any(|(r_, q_, e_)| self.road_is_color(r_, q_, e_, color))
+    }
+
+    fn can_place_setup_road(&self, r: usize, q: usize, edge: usize) -> bool {
+        self.roads[r][q][edge].is_none()
+    }
 
     fn place_road(&mut self, r: usize, q: usize, edge: usize, color: Color) {
         for (r, q, e) in get_dup_edges(r, q, edge) {
@@ -317,26 +323,20 @@ impl Board {
         }
     }
 
-    fn can_place_settlement(&self, r: usize, q: usize, corner: usize) -> bool {
+    fn can_place_settlement(&self, r: usize, q: usize, corner: usize, color: Color) -> bool {
         self.structures[r][q][corner].is_none()
-        && neighboring_corners(r, q, corner).into_iter().all(
+        && corner_corner_neighbors(r, q, corner).all(
+            |(r_, q_, c_)| self.structures[r_][q_][c_].is_none()
+        )
+        && cor_edge_neighbors(r, q, corner).any(|(r_, q_, e_)| self.road_is_color(r_, q_, e_, color))
+    }
+
+    fn can_place_setup_settlement(&self, r: usize, q: usize, corner: usize) -> bool {
+        self.structures[r][q][corner].is_none()
+        && corner_corner_neighbors(r, q, corner).all(
             |(r_, q_, c_)| self.structures[r_][q_][c_].is_none()
         )
     }
-
-    // fn place_settlement_safe(&mut self, r: usize, q: usize, corner: usize, color: Color) -> bool {
-    //     if self.can_place_settlement(r, q, corner) {
-    //         for (r, q, c) in get_dup_corners(r, q, corner) {
-    //             self.structures[r][q][c] = Some(Structure {
-    //                 structure_type: StructureType::Settlement,
-    //                 color
-    //             });
-    //         }
-    //         true
-    //     } else {
-    //         false
-    //     }
-    // }
 
     fn place_settlement(&mut self, r: usize, q: usize, corner: usize, color: Color) {
         for (r, q, c) in get_dup_corners(r, q, corner) {
@@ -347,23 +347,7 @@ impl Board {
         }
     }
 
-    fn upgrade_to_city(&mut self, r: usize, q: usize, corner: usize) -> bool {
-        if let Some(s) = self.structures[r][q][corner] {
-            if s.structure_type == StructureType::Settlement {
-                let color = s.color;
-                for (r, q, c) in get_dup_corners(r, q, corner) {
-                    self.structures[r][q][c] = Some(Structure {
-                        structure_type: StructureType::City,
-                        color
-                    });
-                }
-                return true;
-            }
-        }
-        return false;
-    }
-
-    fn upgrade_to_city_unchecked(&mut self, r: usize, q: usize, corner: usize) {
+    fn upgrade_to_city(&mut self, r: usize, q: usize, corner: usize) {
         let color = self.structures[r][q][corner].unwrap().color;
         for (r, q, c) in get_dup_corners(r, q, corner) {
             self.structures[r][q][c] = Some(Structure {
@@ -429,7 +413,7 @@ impl Player {
             is_human,
             board,
             vps: 0,
-            hand: STARTING_PLAYER_HAND,
+            hand: Hand::new(),
             dvs: Hand::new(),
             new_dvs: Hand::new(),
             knights: 0,
@@ -444,9 +428,9 @@ impl Player {
         self.board.borrow_mut().bank.disc_max(got);
     }
 
-    fn disc_resources(&mut self, lost: Hand) -> bool {
+    fn discard_resources(&mut self, lost: Hand) -> bool {
         if self.hand.can_disc(lost) {
-            self.hand.disc(lost);
+            self.hand.discard(lost);
             self.board.borrow_mut().bank.add(lost);
             true
         } else {
@@ -455,9 +439,9 @@ impl Player {
     }
 
     fn build_road(&mut self, r: usize, q: usize, edge: usize) -> bool {
-        let can_place_road = self.board.borrow().can_place_road(r, q, edge);
+        let can_place_road = self.board.borrow().can_place_road(r, q, edge, self.color);
         if can_place_road && self.hand.can_disc(ROAD_HAND) && self.road_pool > 0 {
-            self.disc_resources(ROAD_HAND);
+            self.discard_resources(ROAD_HAND);
             self.board.borrow_mut().place_road(r, q, edge, self.color);
             self.road_pool -= 1;
             true
@@ -467,12 +451,12 @@ impl Player {
     }
 
     fn build_settlement(&mut self, r: usize, q: usize, corner: usize) -> bool {
-        // println!("works on board: {}", board.can_place_settlement(r, q, corner));
-        // println!("has cards: {}", self.hand.can_disc(SETTLEMENT_HAND));
-        // println!("settlements available: {}", self.settlement_pool > 0);
-        let can_place_settlement = self.board.borrow().can_place_settlement(r, q, corner);
+        println!("works on board: {}", self.board.borrow().can_place_settlement(r, q, corner, self.color));
+        println!("has cards: {}", self.hand.can_disc(SETTLEMENT_HAND));
+        println!("settlements available: {}", self.settlement_pool > 0);
+        let can_place_settlement = self.board.borrow().can_place_settlement(r, q, corner, self.color);
         if can_place_settlement && self.hand.can_disc(SETTLEMENT_HAND) && self.settlement_pool > 0 {
-            self.disc_resources(SETTLEMENT_HAND);
+            self.discard_resources(SETTLEMENT_HAND);
             self.board.borrow_mut().place_settlement(r, q, corner, self.color);
             self.settlement_pool -= 1;
             true
@@ -484,7 +468,7 @@ impl Player {
     fn upgrade_to_city(&mut self, r: usize, q: usize, corner: usize) -> bool {
         let Some(s) = self.board.borrow().structures[r][q][corner] else { return false; };
         if s.structure_type == StructureType::Settlement && s.color == self.color && self.hand.can_disc(CITY_HAND) {
-            self.disc_resources(CITY_HAND);
+            self.discard_resources(CITY_HAND);
             self.board.borrow_mut().upgrade_to_city(r, q, corner);
             self.city_pool -= 1;
             self.settlement_pool += 1;
@@ -497,7 +481,7 @@ impl Player {
     fn buy_dv_card(&mut self, r: usize, q: usize, corner: usize) -> bool {
         let can_draw = self.board.borrow().dv_bank.len() > 0;
         if self.hand.can_disc(DV_CARD_HAND) && can_draw {
-            self.disc_resources(DV_CARD_HAND);
+            self.discard_resources(DV_CARD_HAND);
             self.new_dvs.add(Hand::from_card(self.board.borrow_mut().draw_dv_card() as usize));
             true
         } else {
@@ -511,7 +495,7 @@ impl Player {
                 let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
                 let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
                 let corner: usize = get_specific_input("corner: ", "it's a usize 0-6 silly! corner: ", |n| n < 6);
-                if self.board.borrow().can_place_settlement(r, q, corner) {
+                if self.board.borrow().can_place_setup_settlement(r, q, corner) {
                     println!("Placing settlement at ({}, {}, {})", r, q, corner);
                     let conf = get_input("Type 'c' to confirm");
                     if conf == "c" {
@@ -526,7 +510,7 @@ impl Player {
                 let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
                 let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
                 let edge: usize = get_specific_input("edge: ", "it's a usize 0-6 silly! edge: ", |n| n < 6);
-                if self.board.borrow().can_place_road(r, q, edge) {
+                if self.board.borrow().can_place_setup_road(r, q, edge) {
                     println!("Placing road at ({}, {}, {})", r, q, edge);
                     let conf = get_input("Type 'c' to confirm");
                     if conf == "c" {
@@ -548,6 +532,17 @@ impl Player {
 }
 
 //// Coordinate manipulation
+// - Hex coords: axial coordinates (r, q)
+// r loosely corresponds with row, q with col.
+//
+// - Corner coords: (r, q, corner)
+// Defined as an absolute position on a hex,
+// starting from 0 at the top corner and incrementing clockwise.
+// This means corners can have up to three sets of coordinates (one for each touching hex)
+//
+// - Edge coords: (r, q, edge)
+// Defined very similarly to corners, starting from the top-left edge
+// the edge (a, b, c) is a half-step counterclockwise from the corner (a, b, c)
 
 fn is_on_board(r: usize, q: usize) -> bool {
     r < 5 && q < 5 && r + q >= 2 && r + q <= 6
@@ -595,10 +590,6 @@ fn get_dup_corners(r: usize, q: usize, corner: usize) -> Vec<(usize, usize, usiz
     dups
 }
 
-fn neighboring_corners(r: usize, q: usize, corner: usize) -> Vec<(usize, usize, usize)> {
-    get_dup_corners(r, q, corner).into_iter().map(|(_, _, c)| (r, q, (c + 1) % 6)).collect()
-}
-
 fn get_dup_edges(r: usize, q: usize, edge: usize) -> Vec<(usize, usize, usize)> {
     let mut dups = vec![(r, q, edge)];
     let neighbor = ((r as isize + DIRS[edge].0) as usize, (q as isize + DIRS[edge].1) as usize);
@@ -606,6 +597,24 @@ fn get_dup_edges(r: usize, q: usize, edge: usize) -> Vec<(usize, usize, usize)> 
         dups.push((neighbor.0, neighbor.1, (edge + 3) % 6));
     }
     dups
+}
+
+fn corner_corner_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = (usize, usize, usize)> {
+    get_dup_corners(r, q, corner).into_iter().map(move |(r_, q_, c)| (r_, q_, (c + 1) % 6))
+}
+
+fn edge_edge_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = (usize, usize, usize)> {
+    get_dup_edges(r, q, edge).into_iter().flat_map(move |(r_, q_, e)|
+        [1, 5].into_iter().map(move |step_e| (r_, q_, (e + step_e) % 6))
+    )
+}
+
+fn cor_edge_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = (usize, usize, usize)> {
+    get_dup_corners(r, q, corner).into_iter() // hehe
+}
+
+fn edge_cor_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = (usize, usize, usize)> {
+    get_dup_edges(r, q, edge).into_iter()
 }
 
 fn get_input(msg: &str) -> String {
@@ -632,6 +641,8 @@ fn get_input_and_parse<T: FromStr>(msg: &str, err_msg: &str) -> T {
     }
 }
 
+// I'll remove this fn someday (the ones above it too)
+// I WILL make a better ui than text input
 fn get_specific_input<T, F>(msg: &str, err_msg: &str, pred: F) -> T where T: FromStr + Copy, F: Fn(T) -> bool {
     println!("{}", msg);
     let mut buf = String::new();
@@ -669,6 +680,15 @@ fn play_game(num_players: usize) {
 }
 
 fn main() {
+    // println!("{:?}", get_dup_edges(2, 2, 0));
+    // for e in edge_edge_neighbors(2, 2, 0) {
+    //     println!("({}, {}, {})", e.0, e.1, e.2);
+    // }
+
+    // println!("{:?}", get_dup_corners(2, 2, 0));
+    // for e in corner_corner_neighbors(2, 2, 0) {
+    //     println!("({}, {}, {})", e.0, e.1, e.2);
+    // }
     let num_players = 4;
     // play_game(num_players);
 
@@ -679,7 +699,10 @@ fn main() {
         players.push(Player::new(Color::from(i), true, board.clone()));
     }
 
-    println!("{}", players[0].build_settlement(2, 2, 0));
-    println!("{}", players[1].build_settlement(2, 2, 2));
-    println!("{}", players[2].build_settlement(1, 2, 0));
+    board.borrow_mut().place_settlement(2, 2, 0, Color::Red);
+    board.borrow_mut().place_road(2, 2, 1, Color::Red);
+    println!("{}", players[0].build_road(2, 2, 2));
+    println!("{}", players[0].build_settlement(2, 2, 2));
+    println!("{}", players[0].build_settlement(1, 2, 0));
+    println!("{}", players[0].upgrade_to_city(2, 2, 0));
 }
