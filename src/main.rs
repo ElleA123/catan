@@ -1,4 +1,3 @@
-use core::panic;
 use std::{cell::RefCell, rc::Rc};
 use std::str::FromStr;
 use std::fmt::Display;
@@ -49,8 +48,19 @@ impl Color {
             1 => Color::Blue,
             2 => Color::Orange,
             3 => Color::White,
-            _ => panic!("Invalid color ID")
+            _ => panic!("Color::from(): Invalid color ID")
         }
+    }
+}
+
+impl Display for Color {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            &Color::Red => "Red",
+            &Color::Blue => "Blue",
+            &Color::Orange => "Orange",
+            &Color::White => "White"
+        })
     }
 }
 
@@ -117,6 +127,28 @@ impl Hand {
         hand[4] = get_input_and_parse("sheep: ", "type: usize");
         hand[0] = get_input_and_parse("ore: ", "type: usize");
         hand
+    }
+
+    fn sized_from_input(size: usize) -> Hand {
+        let mut hand;
+        loop {
+            hand = Hand::new();
+            hand[0] = get_input_and_parse("wood: ", "type: usize");
+            hand[1] = get_input_and_parse("brick: ", "type: usize");
+            hand[2] = get_input_and_parse("wheat: ", "type: usize");
+            hand[4] = get_input_and_parse("sheep: ", "type: usize");
+            hand[0] = get_input_and_parse("ore: ", "type: usize");
+            if hand.size() == size {
+                return hand;
+            }
+            println!("wrong size! ({})", size);
+        }
+    }
+
+    fn clear(&mut self) {
+        for i in 0..5 {
+            self[i] = 0;
+        }
     }
 
     fn size(&self) -> usize {
@@ -438,14 +470,15 @@ impl DVCard {
             2 => DVCard::YOP,
             3 => DVCard::Monopoly,
             4 => DVCard::VP,
-            _ => panic!("error: invalid DVCard index")
+            _ => panic!("DVCard::from(): Invalid DVCard index")
         }
     }
 }
 
 enum TurnStatus {
     Finished,
-    Robber,
+    Rolling,
+    PlayedDV,
     TradeOffer(Hand, Hand),
     Win
 }
@@ -504,9 +537,21 @@ impl Player {
             self.discard_resources(ROAD_HAND);
             self.board.borrow_mut().place_road(r, q, edge, self.color);
             self.road_pool -= 1;
-            true
-        } else {
-            false
+            return true;
+        }
+        return false;
+    }
+
+    fn input_and_build_road(&mut self) {
+        loop {
+            let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
+            let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
+            let edge: usize = get_specific_input("edge: ", "it's a usize 0-6 silly! edge: ", |n| n < 6);
+            if self.build_road(r, q, edge) {
+                break;
+            } else {
+                println!("You can't build there stupid! Let's try again...");
+            }
         }
     }
 
@@ -525,6 +570,19 @@ impl Player {
         }
     }
 
+    fn input_and_build_settlement(&mut self) {
+        loop {
+            let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
+            let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
+            let corner: usize = get_specific_input("corner: ", "it's a usize 0-6 silly! corner: ", |n| n < 6);
+            if self.build_settlement(r, q, corner) {
+                break;
+            } else {
+                println!("You can't build there stupid! Let's try again...");
+            }
+        }
+    }
+
     fn upgrade_to_city(&mut self, r: usize, q: usize, corner: usize) -> bool {
         let Some(s) = self.board.borrow().structures[r][q][corner] else { return false; };
         if s.structure_type == StructureType::Settlement && s.color == self.color && self.hand.can_disc(CITY_HAND) {
@@ -535,6 +593,19 @@ impl Player {
             true
         } else {
             false
+        }
+    }
+
+    fn input_and_upgrade_to_city(&mut self) {
+        loop {
+            let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
+            let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
+            let corner: usize = get_specific_input("corner: ", "it's a usize 0-6 silly! corner: ", |n| n < 6);
+            if self.upgrade_to_city(r, q, corner) {
+                break;
+            } else {
+                println!("You can't upgrade there stupid! Let's try again...");
+            }
         }
     }
 
@@ -549,24 +620,70 @@ impl Player {
         }
     }
 
+    fn try_buy_dv_card(&mut self) {
+        if self.buy_dv_card() {
+            println!("Done!");
+        } else {
+            println!("You have not the materials!");
+        }
+    }
+
+    fn play_dv_card(&mut self, card: usize) -> bool {
+        if self.dvs[card] > 0 {
+            self.dvs[card] -= 1;
+            match card {
+                0 => {}, // Knight
+                1 => {}, // RB
+                2 => {}, // YOP
+                3 => {}, // Monopoly
+                _ => panic!("Player::play_dv_card(): Invalid DVCard")
+            }
+            return true;
+        }
+        return false;
+    }
+
+    fn input_and_play_dv_card(&mut self) {
+        loop {
+            let card = get_specific_input("DV card:", "usize < 4 (can't play VPS)", |n| n < 4);
+            if self.play_dv_card(card) {
+                break;
+            } else {
+                println!("You don't even have that card bruh");
+            }
+        }
+    }
+
+    fn offer_trade(&self) -> (Hand, Hand) {
+        let mut give;
+        loop {
+            give = Hand::from_input();
+            if self.hand.can_disc(give) {
+                break;
+            }
+        }
+        let get = Hand::from_input();
+        (give, get)
+    }
+
     fn handle_robber(&mut self) {
         if self.hand.size() > 7 {
             let amt_discarded = self.hand.size() / 2;
-            let mut discarded = Hand::from_input();
-            while !(discarded.size() == amt_discarded && self.hand.can_disc(discarded)) {
-                discarded = Hand::from_input();
+            let mut discarded = Hand::sized_from_input(amt_discarded);
+            while !(self.hand.can_disc(discarded)) {
+                discarded = Hand::sized_from_input(amt_discarded);
             }
             self.discard_resources(discarded);
         }
     }
 
     fn move_robber(&self) -> Option<usize> {
-        // TODO - add choice
-        let r = 2;
-        let q = 2;
+        let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
+        let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
         self.board.borrow_mut().robber = (r, q);
         let colors = self.board.borrow().get_colors_on_hex(r, q);
         if colors.len() > 0 {
+            println!("Steal from one of: {}", colors.iter().map(|c| format!("{}", c)).collect::<Vec<String>>().join(","));
             Some(colors[0] as usize) // TODO - add choice
         } else {
             None
@@ -580,6 +697,7 @@ impl Player {
     fn respond_to_trade_responses(&self, responses: Vec<bool>) -> Option<usize> {
         for (id, res) in responses.into_iter().enumerate() {
             if res {
+                // TODO - add choice
                 return Some(id);
             }
         }
@@ -588,6 +706,7 @@ impl Player {
 
     fn take_setup_turn(&mut self) {
         if self.is_human {
+            // TODO: do better
             loop {
                 let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
                 let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
@@ -621,8 +740,60 @@ impl Player {
         }
     }
 
-    fn take_turn(&mut self) -> TurnStatus {
-        TurnStatus::Finished
+    fn take_preroll_turn(&mut self, has_played_dv: bool) -> TurnStatus {
+        loop {
+            let action: usize = get_specific_input("Action to take:", "usize < 2", |n| n < 2);
+            match action {
+                0 => return TurnStatus::Rolling, // Roll
+                1 => { // Play DV
+                    if !has_played_dv {
+                        self.input_and_play_dv_card();
+                        return TurnStatus::PlayedDV;
+                    } else {
+                        println!("You've already played a DV this turn!");
+                    }
+                },
+                _ => panic!("Player::take_preroll_turn(): invalid action")
+            }
+        }
+    }
+
+    fn take_postroll_turn(&mut self, has_played_dv: bool) -> TurnStatus {
+        loop {
+            let action: usize = get_specific_input("Action to take:", "usize < 7", |n| n < 7);
+            match action {
+                0 => self.input_and_build_road(), // Road
+                1 => self.input_and_build_settlement(), // Settlement
+                2 => self.input_and_upgrade_to_city(), // City
+                3 => self.try_buy_dv_card(), // Buy DV card
+                4 => { // Play DV card
+                    if !has_played_dv {
+                        self.input_and_play_dv_card();
+                        return TurnStatus::PlayedDV;
+                    } else {
+                        println!("You've already played a DV this turn!");
+                    }
+                },
+                5 => { // Offer trade
+                    let (give, get) = self.offer_trade();
+                    return TurnStatus::TradeOffer(give, get);
+                },
+                6 => { // Finish turn
+                    self.dvs.add(self.new_dvs);
+                    self.new_dvs.clear();
+                    return TurnStatus::Finished
+                },
+                _ => panic!("Player::take_turn(): invalid action")
+            }
+        }
+    }
+
+    fn take_turn(&mut self, has_rolled: bool, has_played_dv: bool) -> TurnStatus {
+        if !has_rolled {
+            self.take_preroll_turn(has_played_dv)
+        } else {
+            self.take_postroll_turn(has_played_dv)
+        }
     }
 }
 
@@ -757,6 +928,10 @@ fn get_specific_input<T, F>(msg: &str, err_msg: &str, pred: F) -> T where T: Fro
     }
 }
 
+fn roll_dice<R: Rng + ?Sized>(rng: &mut R) -> usize {
+    rng.random_range(1..=6) + rng.random_range(1..=6)
+}
+
 fn play_game(num_players: usize) {
     let mut rng = rand::rng();
     let board = Rc::new(RefCell::new(Board::new(num_players, &mut rng)));
@@ -766,6 +941,7 @@ fn play_game(num_players: usize) {
     }
 
     for id in 0..num_players {
+        println!("{}", board.borrow());
         players[id].take_setup_turn();
     }
     for id in (0..num_players).rev() {
@@ -778,19 +954,33 @@ fn play_game(num_players: usize) {
     
     let mut turn = 0;
     let mut winner = 0;
+
+    let mut has_rolled = false;
+    let mut has_played_dv = false;
     loop {
-        match players[turn].take_turn() {
-            TurnStatus::Robber => {
-                turn += 1;
-                for _ in 1..num_players {
-                    players[turn].handle_robber();
+        match players[turn].take_turn(has_rolled, has_played_dv) {
+            TurnStatus::Rolling => {
+                has_rolled = true;
+                let roll = roll_dice(&mut rng);
+                if roll != 7 {
+                    for (p, produced) in board.borrow().give_resources(roll).into_iter().enumerate() {
+                        players[p].get_resources(produced);
+                    }
+                } else {
                     turn += 1;
-                }
-                if let Some(robbed) = players[turn].move_robber() {
-                    let card_robbed = players[robbed].hand.pop_random(&mut rng);
-                    players[turn].get_resources(Hand::from_card(card_robbed));
+                    for _ in 1..num_players {
+                        players[turn].handle_robber();
+                        turn += 1;
+                    }
+                    if let Some(robbed) = players[turn].move_robber() {
+                        let card_robbed = players[robbed].hand.pop_random(&mut rng);
+                        players[turn].get_resources(Hand::from_card(card_robbed));
+                    }
                 }
             },
+            TurnStatus::PlayedDV => {
+                has_played_dv = true;
+            }
             TurnStatus::TradeOffer(give, get) => {
                 let mut responses: Vec<bool> = Vec::with_capacity(num_players);
                 turn += 1;
@@ -826,11 +1016,13 @@ fn play_game(num_players: usize) {
                     players[longest_road].vps += 2;
                     longest_road_size = players[turn].road_len;
                 }
+                has_rolled = false;
+                has_played_dv = false;
                 turn += 1;
             }
         }
     }
-    println!("{:?} wins!", Color::from(winner));
+    println!("{} wins!", winner);
 }
 
 fn main() {
@@ -844,19 +1036,19 @@ fn main() {
     //     println!("({}, {}, {})", e.0, e.1, e.2);
     // }
     let num_players = 4;
-    // play_game(num_players);
+    play_game(num_players);
 
-    let mut rng = rand::rng();
-    let board = Rc::new(RefCell::new(Board::new(num_players, &mut rng)));
-    let mut players = Vec::with_capacity(num_players);
-    for i in 0..num_players {
-        players.push(Player::new(Color::from(i), true, board.clone()));
-    }
+    // let mut rng = rand::rng();
+    // let board = Rc::new(RefCell::new(Board::new(num_players, &mut rng)));
+    // let mut players = Vec::with_capacity(num_players);
+    // for i in 0..num_players {
+    //     players.push(Player::new(Color::from(i), true, board.clone()));
+    // }
 
-    board.borrow_mut().place_settlement(2, 2, 0, Color::Red);
-    board.borrow_mut().place_road(2, 2, 1, Color::Red);
-    println!("{}", players[0].build_road(2, 2, 2));
-    println!("{}", players[0].build_settlement(2, 2, 2));
-    println!("{}", players[0].build_settlement(1, 2, 0));
-    println!("{}", players[0].upgrade_to_city(2, 2, 0));
+    // board.borrow_mut().place_settlement(2, 2, 0, Color::Red);
+    // board.borrow_mut().place_road(2, 2, 1, Color::Red);
+    // println!("{}", players[0].build_road(2, 2, 2));
+    // println!("{}", players[0].build_settlement(2, 2, 2));
+    // println!("{}", players[0].build_settlement(1, 2, 0));
+    // println!("{}", players[0].upgrade_to_city(2, 2, 0));
 }
