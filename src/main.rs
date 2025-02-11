@@ -366,7 +366,7 @@ impl Board {
         && corner_corner_neighbors(r, q, corner).all(
             |(r_, q_, c_)| self.structures[r_][q_][c_].is_none()
         )
-        && cor_edge_neighbors(r, q, corner).any(|(r_, q_, e_)| self.road_is_color(r_, q_, e_, color))
+        && corner_edge_neighbors(r, q, corner).any(|(r_, q_, e_)| self.road_is_color(r_, q_, e_, color))
     }
 
     fn can_place_setup_settlement(&self, r: usize, q: usize, corner: usize) -> bool {
@@ -459,6 +459,7 @@ struct Player {
     dvs: Hand,
     new_dvs: Hand,
     knights: usize,
+    road_len: usize,
     road_pool: usize,
     settlement_pool: usize,
     city_pool: usize,
@@ -475,6 +476,7 @@ impl Player {
             dvs: Hand::new(),
             new_dvs: Hand::new(),
             knights: 0,
+            road_len: 0,
             road_pool: 15,
             settlement_pool: 5,
             city_pool: 4
@@ -702,13 +704,15 @@ fn edge_edge_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = 
     )
 }
 
-fn cor_edge_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = (usize, usize, usize)> {
+fn corner_edge_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = (usize, usize, usize)> {
     get_dup_corners(r, q, corner).into_iter() // hehe
 }
 
 fn edge_cor_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = (usize, usize, usize)> {
     get_dup_edges(r, q, edge).into_iter()
 }
+
+//// Input
 
 fn get_input(msg: &str) -> String {
     println!("{}", msg);
@@ -767,8 +771,10 @@ fn play_game(num_players: usize) {
     for id in (0..num_players).rev() {
         players[id].take_setup_turn();
     }
-    let mut largest_army: Option<usize> = None;
-    let mut longest_road: Option<usize> = None;
+    let mut largest_army = num_players;
+    let mut largest_army_size = 2;
+    let mut longest_road = num_players;
+    let mut longest_road_size = 4;
     
     let mut turn = 0;
     let mut winner = 0;
@@ -803,7 +809,25 @@ fn play_game(num_players: usize) {
                 winner = turn;
                 break;
             }
-            TurnStatus::Finished => turn += 1
+            TurnStatus::Finished => {
+                if players[turn].knights > largest_army_size && largest_army != turn {
+                    if largest_army != num_players {
+                        players[largest_army].vps -= 2;
+                    }
+                    largest_army = turn;
+                    players[largest_army].vps += 2;
+                    largest_army_size = players[turn].knights;
+                }
+                if players[turn].road_len > longest_road_size && longest_road != turn {
+                    if longest_road != num_players {
+                        players[longest_road].vps -= 2;
+                    }
+                    longest_road = turn;
+                    players[longest_road].vps += 2;
+                    longest_road_size = players[turn].road_len;
+                }
+                turn += 1;
+            }
         }
     }
     println!("{:?} wins!", Color::from(winner));
