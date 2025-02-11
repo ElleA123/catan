@@ -1,3 +1,4 @@
+use core::panic;
 use std::{cell::RefCell, rc::Rc};
 use std::str::FromStr;
 use std::fmt::Display;
@@ -83,6 +84,7 @@ struct Hand([usize; 5]);
 // const STARTING_PLAYER_HAND: Hand = Hand([4, 4, 2, 2, 0]);
 
 const STARTING_BANK_HAND: Hand = Hand([19, 19, 19, 19, 19]);
+// const STARTING_DV_BANK: Hand = Hand([14, 2, 2, 2, 5]);
 const STARTING_DV_BANK: [DVCard; 25] = [
     DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight,
     DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight,
@@ -107,6 +109,16 @@ impl Hand {
         hand
     }
 
+    fn from_input() -> Hand {
+        let mut hand = Hand::new();
+        hand[0] = get_input_and_parse("wood: ", "type: usize");
+        hand[1] = get_input_and_parse("brick: ", "type: usize");
+        hand[2] = get_input_and_parse("wheat: ", "type: usize");
+        hand[4] = get_input_and_parse("sheep: ", "type: usize");
+        hand[0] = get_input_and_parse("ore: ", "type: usize");
+        hand
+    }
+
     fn size(&self) -> usize {
         self.0.iter().sum()
     }
@@ -119,6 +131,20 @@ impl Hand {
 
     fn can_disc(&self, rhs: Hand) -> bool {
         (0..self.0.len()).all(|i| self[i] >= rhs[i])
+    }
+
+    fn pop_random<R: Rng + ?Sized>(&mut self, rng: &mut R) -> usize {
+        let mut selected = rng.random_range(0..self.size());
+        for (idx, count) in self.0.iter().enumerate() {
+            if selected < *count {
+                self[idx] -= 1;
+                return idx;
+            } else {
+                selected -= count;
+            }
+        }
+        println!("pop_random bugged");
+        return 0
     }
 
     // fn disc_safe(&mut self, rhs: Hand) -> bool {
@@ -296,6 +322,18 @@ impl Board {
         }
     }
 
+    fn get_colors_on_hex(&self, r: usize, q: usize) -> Vec<Color> {
+        let mut colors = Vec::with_capacity(self.num_players);
+        for corner in 0..6 {
+            if let Some(s) = self.structures[r][q][corner] {
+                if !colors.contains(&s.color) {
+                    colors.push(s.color);
+                }
+            }
+        }
+        colors
+    }
+
     fn road_is_color(&self, r: usize, q: usize, edge: usize, color: Color) -> bool {
         match self.roads[r][q][edge] {
             Some(c) => c == color,
@@ -392,6 +430,19 @@ enum DVCard {
     VP=4
 }
 
+impl DVCard {
+    fn from(idx: usize) -> DVCard {
+        match idx {
+            0 => DVCard::Knight,
+            1 => DVCard::RoadBuilding,
+            2 => DVCard::YOP,
+            3 => DVCard::Monopoly,
+            4 => DVCard::VP,
+            _ => panic!("error: invalid DVCard index")
+        }
+    }
+}
+
 enum TurnStatus {
     Finished,
     Robber,
@@ -485,7 +536,7 @@ impl Player {
         }
     }
 
-    fn buy_dv_card(&mut self, r: usize, q: usize, corner: usize) -> bool {
+    fn buy_dv_card(&mut self) -> bool {
         let can_draw = self.board.borrow().dv_bank.len() > 0;
         if self.hand.can_disc(DV_CARD_HAND) && can_draw {
             self.discard_resources(DV_CARD_HAND);
@@ -495,6 +546,43 @@ impl Player {
             false
         }
     }
+
+    fn handle_robber(&mut self) {
+        if self.hand.size() > 7 {
+            let amt_discarded = self.hand.size() / 2;
+            let mut discarded = Hand::from_input();
+            while !(discarded.size() == amt_discarded && self.hand.can_disc(discarded)) {
+                discarded = Hand::from_input();
+            }
+            self.discard_resources(discarded);
+        }
+    }
+
+    fn move_robber(&self) -> Option<usize> {
+        // TODO - add choice
+        let r = 2;
+        let q = 2;
+        self.board.borrow_mut().robber = (r, q);
+        let colors = self.board.borrow().get_colors_on_hex(r, q);
+        if colors.len() > 0 {
+            Some(colors[0] as usize) // TODO - add choice
+        } else {
+            None
+        }
+    }
+
+    fn respond_to_trade(&self, give: Hand, get: Hand) -> bool {
+        return true; // TODO - add choice
+    }
+
+    fn respond_to_trade_responses(&self, responses: Vec<bool>) -> Option<usize> {
+        for (id, res) in responses.into_iter().enumerate() {
+            if res {
+                return Some(id);
+            }
+        }
+        return None;
+    } 
 
     fn take_setup_turn(&mut self) {
         if self.is_human {
@@ -692,6 +780,10 @@ fn play_game(num_players: usize) {
                     players[turn].handle_robber();
                     turn += 1;
                 }
+                if let Some(robbed) = players[turn].move_robber() {
+                    let card_robbed = players[robbed].hand.pop_random(&mut rng);
+                    players[turn].get_resources(Hand::from_card(card_robbed));
+                }
             },
             TurnStatus::TradeOffer(give, get) => {
                 let mut responses: Vec<bool> = Vec::with_capacity(num_players);
@@ -699,6 +791,12 @@ fn play_game(num_players: usize) {
                 for _ in 1..num_players {
                     responses.push(players[turn].respond_to_trade(give, get));
                     turn += 1;
+                }
+                if let Some(trader) = players[turn].respond_to_trade_responses(responses) {
+                    players[turn].discard_resources(give);
+                    players[turn].get_resources(get);
+                    players[trader].discard_resources(get);
+                    players[trader].get_resources(give);
                 }
             },
             TurnStatus::Win => {
@@ -708,6 +806,7 @@ fn play_game(num_players: usize) {
             TurnStatus::Finished => turn += 1
         }
     }
+    println!("{:?} wins!", Color::from(winner));
 }
 
 fn main() {
