@@ -1,8 +1,12 @@
+pub mod render;
+
 use std::{cell::RefCell, rc::Rc};
 use std::str::FromStr;
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
+use macroquad::window::next_frame;
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
+use render::render_board;
 
 //// Typedefs
 #[derive(Debug, Clone, Copy)]
@@ -34,32 +38,40 @@ enum Port {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Color {
+enum PlayerColor {
     Red=0,
     Blue=1,
     Orange=2,
     White=3
 }
 
-impl Color {
-    fn from(id: usize) -> Color {
+impl PlayerColor {
+    fn from(id: usize) -> PlayerColor {
         match id {
-            0 => Color::Red,
-            1 => Color::Blue,
-            2 => Color::Orange,
-            3 => Color::White,
-            _ => panic!("Color::from(): Invalid color ID")
+            0 => PlayerColor::Red,
+            1 => PlayerColor::Blue,
+            2 => PlayerColor::Orange,
+            3 => PlayerColor::White,
+            _ => panic!("PlayerColor::from(): Invalid color ID")
+        }
+    }
+    fn to_color(self) -> macroquad::color::Color {
+        match self {
+            PlayerColor::Red => macroquad::color::RED,
+            PlayerColor::Blue => macroquad::color::BLUE,
+            PlayerColor::Orange => macroquad::color::ORANGE,
+            PlayerColor::White => macroquad::color::WHITE
         }
     }
 }
 
-impl Display for Color {
+impl Display for PlayerColor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", match self {
-            &Color::Red => "Red",
-            &Color::Blue => "Blue",
-            &Color::Orange => "Orange",
-            &Color::White => "White"
+            &PlayerColor::Red => "Red",
+            &PlayerColor::Blue => "Blue",
+            &PlayerColor::Orange => "Orange",
+            &PlayerColor::White => "White"
         })
     }
 }
@@ -73,7 +85,7 @@ enum StructureType {
 #[derive(Debug, Clone, Copy)]
 struct Structure {
     structure_type: StructureType,
-    color: Color
+    color: PlayerColor
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -257,7 +269,7 @@ struct Board {
     hexes: [[Option<Hex>; 5]; 5],
     ports: [Port; 9],
     structures: [[[Option<Structure>; 6]; 5]; 5],
-    roads: [[[Option<Color>; 6]; 5]; 5],
+    roads: [[[Option<PlayerColor>; 6]; 5]; 5],
     robber: (usize, usize),
     bank: Hand,
     dv_bank: Vec<DVCard>,
@@ -287,7 +299,7 @@ impl Board {
     fn new<R: Rng + ?Sized>(num_players: usize, rng: &mut R) -> Self {
         let mut hexes: [[Option<Hex>; 5]; 5] = [[None; 5]; 5];
         let structures: [[[Option<Structure>; 6]; 5]; 5] = [[[None; 6]; 5]; 5];
-        let roads: [[[Option<Color>; 6]; 5]; 5] = [[[None; 6]; 5]; 5];
+        let roads: [[[Option<PlayerColor>; 6]; 5]; 5] = [[[None; 6]; 5]; 5];
         let robber = *BOARD_COORDS.choose(rng).unwrap();
 
         // Shuffle resources
@@ -354,7 +366,7 @@ impl Board {
         }
     }
 
-    fn get_colors_on_hex(&self, r: usize, q: usize) -> Vec<Color> {
+    fn get_colors_on_hex(&self, r: usize, q: usize) -> Vec<PlayerColor> {
         let mut colors = Vec::with_capacity(self.num_players);
         for corner in 0..6 {
             if let Some(s) = self.structures[r][q][corner] {
@@ -366,34 +378,42 @@ impl Board {
         colors
     }
 
-    fn road_is_color(&self, r: usize, q: usize, edge: usize, color: Color) -> bool {
+    fn road_is_color(&self, r: usize, q: usize, edge: usize, color: PlayerColor) -> bool {
         match self.roads[r][q][edge] {
             Some(c) => c == color,
             None => false
         }
     }
 
-    // fn get_players_roads<'a>(&'a self, color: Color) -> impl Iterator<Item = (usize, usize, usize)> + 'a {
+    fn structure_is_color(&self, r: usize, q: usize, corner: usize, color: PlayerColor) -> bool {
+        match self.structures[r][q][corner] {
+            Some(c) => c.color == color,
+            None => false
+        }
+    }
+
+    // fn get_players_roads<'a>(&'a self, color: PlayerColor) -> impl Iterator<Item = (usize, usize, usize)> + 'a {
     //     BOARD_COORDS.into_iter().flat_map(|(r, q)| (0..6).map(move |e| (r, q, e)))
     //     .filter(move |&(r, q, e)|self.road_is_color(r, q, e, color))
     // }
 
-    fn can_place_road(&self, r: usize, q: usize, edge: usize, color: Color) -> bool {
+    fn can_place_road(&self, r: usize, q: usize, edge: usize, color: PlayerColor) -> bool {
         self.roads[r][q][edge].is_none()
         && edge_edge_neighbors(r, q, edge).any(|(r_, q_, e_)| self.road_is_color(r_, q_, e_, color))
     }
 
-    fn can_place_setup_road(&self, r: usize, q: usize, edge: usize) -> bool {
+    fn can_place_setup_road(&self, r: usize, q: usize, edge: usize, color: PlayerColor) -> bool {
         self.roads[r][q][edge].is_none()
+        && edge_cor_neighbors(r, q, edge).any(|(r_, q_, c_)| self.structure_is_color(r_, q_, c_, color))
     }
 
-    fn place_road(&mut self, r: usize, q: usize, edge: usize, color: Color) {
+    fn place_road(&mut self, r: usize, q: usize, edge: usize, color: PlayerColor) {
         for (r, q, e) in get_dup_edges(r, q, edge) {
             self.roads[r][q][e] = Some(color);
         }
     }
 
-    fn can_place_settlement(&self, r: usize, q: usize, corner: usize, color: Color) -> bool {
+    fn can_place_settlement(&self, r: usize, q: usize, corner: usize, color: PlayerColor) -> bool {
         self.structures[r][q][corner].is_none()
         && corner_corner_neighbors(r, q, corner).all(
             |(r_, q_, c_)| self.structures[r_][q_][c_].is_none()
@@ -408,7 +428,7 @@ impl Board {
         )
     }
 
-    fn place_settlement(&mut self, r: usize, q: usize, corner: usize, color: Color) {
+    fn place_settlement(&mut self, r: usize, q: usize, corner: usize, color: PlayerColor) {
         for (r, q, c) in get_dup_corners(r, q, corner) {
             self.structures[r][q][c] = Some(Structure {
                 structure_type: StructureType::Settlement,
@@ -462,29 +482,16 @@ enum DVCard {
     VP=4
 }
 
-impl DVCard {
-    fn from(idx: usize) -> DVCard {
-        match idx {
-            0 => DVCard::Knight,
-            1 => DVCard::RoadBuilding,
-            2 => DVCard::YOP,
-            3 => DVCard::Monopoly,
-            4 => DVCard::VP,
-            _ => panic!("DVCard::from(): Invalid DVCard index")
-        }
-    }
-}
-
 enum TurnStatus {
     Finished,
     Rolling,
-    PlayedDV,
+    PlayedDV(usize),
     TradeOffer(Hand, Hand),
     Win
 }
 
 struct Player {
-    color: Color,
+    color: PlayerColor,
     is_human: bool,
     board: Rc<RefCell<Board>>,
     vps: usize,
@@ -499,7 +506,7 @@ struct Player {
 }
 
 impl Player {
-    fn new(color: Color, is_human: bool, board: Rc<RefCell<Board>>) -> Player {
+    fn new(color: PlayerColor, is_human: bool, board: Rc<RefCell<Board>>) -> Player {
         Player {
             color,
             is_human,
@@ -643,11 +650,11 @@ impl Player {
         return false;
     }
 
-    fn input_and_play_dv_card(&mut self) {
+    fn input_and_play_dv_card(&mut self) -> usize {
         loop {
             let card = get_specific_input("DV card:", "usize < 4 (can't play VPS)", |n| n < 4);
             if self.play_dv_card(card) {
-                break;
+                return card;
             } else {
                 println!("You don't even have that card bruh");
             }
@@ -726,7 +733,7 @@ impl Player {
                 let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
                 let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
                 let edge: usize = get_specific_input("edge: ", "it's a usize 0-6 silly! edge: ", |n| n < 6);
-                if self.board.borrow().can_place_setup_road(r, q, edge) {
+                if self.board.borrow().can_place_setup_road(r, q, edge, self.color) {
                     println!("Placing road at ({}, {}, {})", r, q, edge);
                     let conf = get_input("Type 'c' to confirm");
                     if conf == "c" {
@@ -747,8 +754,11 @@ impl Player {
                 0 => return TurnStatus::Rolling, // Roll
                 1 => { // Play DV
                     if !has_played_dv {
-                        self.input_and_play_dv_card();
-                        return TurnStatus::PlayedDV;
+                        let card = self.input_and_play_dv_card();
+                        if self.vps >= 10 {
+                            return TurnStatus::Win;
+                        }
+                        return TurnStatus::PlayedDV(card);
                     } else {
                         println!("You've already played a DV this turn!");
                     }
@@ -768,8 +778,7 @@ impl Player {
                 3 => self.try_buy_dv_card(), // Buy DV card
                 4 => { // Play DV card
                     if !has_played_dv {
-                        self.input_and_play_dv_card();
-                        return TurnStatus::PlayedDV;
+                        return TurnStatus::PlayedDV(self.input_and_play_dv_card());
                     } else {
                         println!("You've already played a DV this turn!");
                     }
@@ -784,6 +793,9 @@ impl Player {
                     return TurnStatus::Finished
                 },
                 _ => panic!("Player::take_turn(): invalid action")
+            }
+            if self.vps >= 10 {
+                return TurnStatus::Win;
             }
         }
     }
@@ -822,26 +834,6 @@ const DIRS: [(isize, isize); 6] = [
     (1, -1),
     (0, -1)
 ];
-
-fn get_s(r: usize, q: usize) -> usize {
-    6 - r - q
-}
-
-// fn neighbors(r: usize, q: usize) -> Vec<(usize, usize)> {
-//     let mut neighbors = Vec::new();
-//     for dir in DIRS {
-//         if is_on_board(
-//             (r as isize + dir.0) as usize,
-//             (q as isize + dir.1) as usize
-//         ) {
-//             neighbors.push((
-//                 (r as isize + dir.0) as usize,
-//                 (q as isize + dir.1) as usize)
-//             );
-//         }
-//     }
-//     neighbors
-// }
 
 fn get_dup_corners(r: usize, q: usize, corner: usize) -> Vec<(usize, usize, usize)> {
     let mut dups = vec![(r, q, corner)];
@@ -932,12 +924,12 @@ fn roll_dice<R: Rng + ?Sized>(rng: &mut R) -> usize {
     rng.random_range(1..=6) + rng.random_range(1..=6)
 }
 
-fn play_game(num_players: usize) {
+pub fn play_game(num_players: usize) {
     let mut rng = rand::rng();
     let board = Rc::new(RefCell::new(Board::new(num_players, &mut rng)));
     let mut players = Vec::with_capacity(num_players);
     for i in 0..num_players {
-        players.push(Player::new(Color::from(i), true, board.clone()));
+        players.push(Player::new(PlayerColor::from(i), true, board.clone()));
     }
 
     for id in 0..num_players {
@@ -953,7 +945,7 @@ fn play_game(num_players: usize) {
     let mut longest_road_size = 4;
     
     let mut turn = 0;
-    let mut winner = 0;
+    let winner;
 
     let mut has_rolled = false;
     let mut has_played_dv = false;
@@ -978,7 +970,7 @@ fn play_game(num_players: usize) {
                     }
                 }
             },
-            TurnStatus::PlayedDV => {
+            TurnStatus::PlayedDV(dv_card) => {
                 has_played_dv = true;
             }
             TurnStatus::TradeOffer(give, get) => {
@@ -1025,30 +1017,19 @@ fn play_game(num_players: usize) {
     println!("{} wins!", winner);
 }
 
-fn main() {
-    // println!("{:?}", get_dup_edges(2, 2, 0));
-    // for e in edge_edge_neighbors(2, 2, 0) {
-    //     println!("({}, {}, {})", e.0, e.1, e.2);
-    // }
-
-    // println!("{:?}", get_dup_corners(2, 2, 0));
-    // for e in corner_corner_neighbors(2, 2, 0) {
-    //     println!("({}, {}, {})", e.0, e.1, e.2);
-    // }
+#[macroquad::main("Catan")]
+async fn main() {
+    let mut rng = rand::rng();
     let num_players = 4;
-    play_game(num_players);
+    // play_game(num_players);
+    let mut board = Board::new(num_players, &mut rng);
+    println!("{:?}", get_dup_corners(2, 2, 0));
+    board.place_settlement(2, 2, 0, PlayerColor::Red);
+    board.upgrade_to_city(2, 2, 0);
+    board.place_road(2, 2, 0, PlayerColor::Blue);
 
-    // let mut rng = rand::rng();
-    // let board = Rc::new(RefCell::new(Board::new(num_players, &mut rng)));
-    // let mut players = Vec::with_capacity(num_players);
-    // for i in 0..num_players {
-    //     players.push(Player::new(Color::from(i), true, board.clone()));
-    // }
-
-    // board.borrow_mut().place_settlement(2, 2, 0, Color::Red);
-    // board.borrow_mut().place_road(2, 2, 1, Color::Red);
-    // println!("{}", players[0].build_road(2, 2, 2));
-    // println!("{}", players[0].build_settlement(2, 2, 2));
-    // println!("{}", players[0].build_settlement(1, 2, 0));
-    // println!("{}", players[0].upgrade_to_city(2, 2, 0));
+    loop {
+        render_board(&board);
+        next_frame().await
+    }
 }
