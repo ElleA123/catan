@@ -1,35 +1,39 @@
 use macroquad::prelude::*;
 
-use crate::{Board, PlayerColor, Structure, StructureType, BOARD_COORDS};
+use crate::{Board, StructureType, BOARD_COORDS, PORT_COORDS};
 use crate::Hex;
 use crate::Resource;
 
 const SQRT_3: f32 = 1.732050807568877293527446341505872367_f32;
-// Equal to hex radius
-const SCALE: f32 = 50.0;
 
-const fn hex_centers(scale: f32) -> [[f32; 2]; 19] {
+fn hex_centers(width: f32, height: f32, scale: f32) -> [[f32; 2]; 19] {
     let mut centers = [[0.0; 2]; 19];
 
-    let start_x: f32 = 100.0;
-    let start_y: f32 = 100.0;
+    // 300x400
 
     let q_shift: f32 = scale * SQRT_3;
     let r_shift_x: f32 = scale * 0.5 * SQRT_3;
     let r_shift_y: f32 = scale * 1.5;
 
-    let mut idx = 0;
-    while idx < BOARD_COORDS.len() {
+    let start_x: f32 = 0.5 * width - (2.0 * q_shift + 2.0 * r_shift_x);
+    let start_y: f32 = 0.5 * height - (2.0 * r_shift_y);
+
+    for idx in 0..BOARD_COORDS.len() {
         let (r, q) = BOARD_COORDS[idx];
         let x = start_x + q_shift * q as f32 + r_shift_x * r as f32;
         let y = start_y + r_shift_y * r as f32;
         centers[idx] = [x, y];
-        idx += 1;
     }
     centers
 }
 
-const HEX_CENTERS: [[f32; 2]; 19] = hex_centers(SCALE);
+// fn port_coords(width: f32, height: f32, scale: f32) -> [[f32; 2]; 9] {
+//     let mut coords: [[f32; 2]; 9] = [[0.0; 2]; 9];
+//     for idx in 0..PORT_COORDS.len() {
+//         let (r, q) = PORT_COORDS[idx];
+
+//     }
+// }
 
 fn render_hex(center: [f32; 2], scale: f32, hex: Hex) {
     let radius = scale;
@@ -177,8 +181,14 @@ fn render_structures(board: &Board, hex_centers: &[[f32; 2]; 19], scale: f32) {
 }
 
 pub fn render_board(board: &Board) {
+    let width = screen_width();
+    let height = screen_height();
+    let scale = if width > height {height} else {width} / 10.0;
+    let hex_centers = hex_centers(width, height, scale);
+    // let port_coords = port_coords(width, height, scale);
+
     clear_background(BLUE);
-    render_hexes(board, &HEX_CENTERS, SCALE);
-    render_roads(board, &HEX_CENTERS, SCALE);
-    render_structures(board, &HEX_CENTERS, SCALE);
+    render_hexes(board, &hex_centers, scale);
+    render_roads(board, &hex_centers, scale);
+    render_structures(board, &hex_centers, scale);
 }

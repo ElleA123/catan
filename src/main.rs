@@ -4,7 +4,7 @@ use std::{cell::RefCell, rc::Rc};
 use std::str::FromStr;
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
-use macroquad::window::next_frame;
+use macroquad::window::{next_frame, screen_width};
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
 use render::render_board;
 
@@ -264,7 +264,7 @@ const BOARD_PORTS: [Port; 9] = [
     Port::Two(Resource::Ore)
 ];
 
-struct Board {
+pub struct Board {
     num_players: usize,
     hexes: [[Option<Hex>; 5]; 5],
     ports: [Port; 9],
@@ -1021,10 +1021,9 @@ pub fn play_game(num_players: usize) {
 async fn main() {
     let mut rng = rand::rng();
     let num_players = 4;
-    // play_game(num_players);
     let mut board = Board::new(num_players, &mut rng);
-    println!("{:?}", get_dup_corners(2, 2, 0));
-    board.place_settlement(2, 2, 0, PlayerColor::Red);
+
+    board.place_settlement(2, 2, 0, PlayerColor::Blue);
     board.upgrade_to_city(2, 2, 0);
     board.place_road(2, 2, 0, PlayerColor::Blue);
 
