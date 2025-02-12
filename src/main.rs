@@ -4,7 +4,6 @@ use std::{cell::RefCell, rc::Rc};
 use std::str::FromStr;
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
-use macroquad::window::{next_frame, screen_width};
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
 use render::render_board;
 
@@ -28,6 +27,18 @@ impl Display for Resource {
             Resource::Ore => "Ore"
         };
         write!(f, "{}", name)
+    }
+}
+
+impl Into<macroquad::color::Color> for Resource {
+    fn into(self) -> macroquad::color::Color {
+        match self {
+            Resource::Wood => macroquad::color::DARKGREEN,
+            Resource::Brick => macroquad::color::RED,
+            Resource::Wheat => macroquad::color::GOLD,
+            Resource::Sheep => macroquad::color::GREEN,
+            Resource::Ore => macroquad::color::GRAY
+        }
     }
 }
 
@@ -55,7 +66,10 @@ impl PlayerColor {
             _ => panic!("PlayerColor::from(): Invalid color ID")
         }
     }
-    fn to_color(self) -> macroquad::color::Color {
+}
+
+impl Into<macroquad::color::Color> for PlayerColor {
+    fn into(self) -> macroquad::color::Color {
         match self {
             PlayerColor::Red => macroquad::color::RED,
             PlayerColor::Blue => macroquad::color::BLUE,
@@ -191,17 +205,6 @@ impl Hand {
         return 0
     }
 
-    // fn disc_safe(&mut self, rhs: Hand) -> bool {
-    //     if self.can_disc(rhs) {
-    //         for i in 0..self.0.len() {
-    //             self[i] -= rhs[i];
-    //         }
-    //         true
-    //     } else {
-    //         false
-    //     }
-    // }
-
     fn discard(&mut self, rhs: Hand) {
         for i in 0..self.0.len() {
             self[i] -= rhs[i];
@@ -232,17 +235,22 @@ impl IndexMut<usize> for Hand {
     }
 }
 
-const BOARD_COORDS: [(usize, usize); 19] = [
-    (0, 2), (0, 3), (0, 4),
-    (1, 1), (1, 2), (1, 3), (1, 4),
-    (2, 0), (2, 1), (2, 2), (2, 3), (2, 4),
-    (3, 0), (3, 1), (3, 2), (3, 3),
-    (4, 0), (4, 1), (4, 2)
+const BOARD_COORDS: [[usize; 2]; 19] = [
+    [0, 2], [0, 3], [0, 4],
+    [1, 1], [1, 2], [1, 3], [1, 4],
+    [2, 0], [2, 1], [2, 2], [2, 3], [2, 4],
+    [3, 0], [3, 1], [3, 2], [3, 3],
+    [4, 0], [4, 1], [4, 2]
 ];
-const PORT_COORDS: [(usize, usize, usize); 9] = [
-    (0, 3, 5), (0, 4, 0), (1, 4, 1),
-    (3, 3, 1), (4, 2, 2), (4, 1, 3),
-    (3, 0, 3), (2, 0, 4), (1, 1, 5)
+// const PORT_COORDS: [[isize; 2]; 9] = [
+//     [-1, 3], [-1, 5], [1, 5],
+//     [3, 4], [5, 2], [5, 0],
+//     [4, -1], [2, -1], [0, 1]
+// ];
+const PORT_COORDS: [[usize; 3]; 9] = [
+    [0, 3, 0], [0, 4, 1], [1, 4, 2],
+    [3, 3, 2], [4, 2, 3], [4, 1, 4],
+    [3, 0, 4], [2, 0, 5], [1, 1, 0]
 ];
 
 const BOARD_RESOURCES: [Resource; 18] = [
@@ -270,7 +278,7 @@ pub struct Board {
     ports: [Port; 9],
     structures: [[[Option<Structure>; 6]; 5]; 5],
     roads: [[[Option<PlayerColor>; 6]; 5]; 5],
-    robber: (usize, usize),
+    robber: [usize; 2],
     bank: Hand,
     dv_bank: Vec<DVCard>,
 }
@@ -316,14 +324,14 @@ impl Board {
         dv_bank.shuffle(rng);
 
         let mut i = 0;
-        for (r, q) in BOARD_COORDS {
+        for [r, q] in BOARD_COORDS {
             // Check for desert
-            if robber != (r, q) {
+            if robber != [r, q] {
                 // No sixes or eights next to each other
                 if numbers[i] == 6 || numbers[i] == 8 {
-                    for dir in [(0, -1), (-1, 0), (-1, 1)] {
-                        let test_r = (r as isize + dir.0) as usize;
-                        let test_q = (q as isize + dir.1) as usize;
+                    for dir in [[0, -1], [-1, 0], [-1, 1]] {
+                        let test_r = (r as isize + dir[0]) as usize;
+                        let test_q = (q as isize + dir[1]) as usize;
                         if is_on_board(test_r, test_q) {
                             if let Some(h) = hexes[test_r][test_q] {
                                 if h.number == 6 || h.number == 8 {
@@ -392,23 +400,23 @@ impl Board {
         }
     }
 
-    // fn get_players_roads<'a>(&'a self, color: PlayerColor) -> impl Iterator<Item = (usize, usize, usize)> + 'a {
+    // fn get_players_roads<'a>(&'a self, color: PlayerColor) -> impl Iterator<Item = [usize; 3]> + 'a {
     //     BOARD_COORDS.into_iter().flat_map(|(r, q)| (0..6).map(move |e| (r, q, e)))
     //     .filter(move |&(r, q, e)|self.road_is_color(r, q, e, color))
     // }
 
     fn can_place_road(&self, r: usize, q: usize, edge: usize, color: PlayerColor) -> bool {
         self.roads[r][q][edge].is_none()
-        && edge_edge_neighbors(r, q, edge).any(|(r_, q_, e_)| self.road_is_color(r_, q_, e_, color))
+        && edge_edge_neighbors(r, q, edge).any(|[r_, q_, e_]| self.road_is_color(r_, q_, e_, color))
     }
 
     fn can_place_setup_road(&self, r: usize, q: usize, edge: usize, color: PlayerColor) -> bool {
         self.roads[r][q][edge].is_none()
-        && edge_cor_neighbors(r, q, edge).any(|(r_, q_, c_)| self.structure_is_color(r_, q_, c_, color))
+        && edge_cor_neighbors(r, q, edge).any(|[r_, q_, c_]| self.structure_is_color(r_, q_, c_, color))
     }
 
     fn place_road(&mut self, r: usize, q: usize, edge: usize, color: PlayerColor) {
-        for (r, q, e) in get_dup_edges(r, q, edge) {
+        for [r, q, e] in get_dup_edges(r, q, edge) {
             self.roads[r][q][e] = Some(color);
         }
     }
@@ -416,20 +424,20 @@ impl Board {
     fn can_place_settlement(&self, r: usize, q: usize, corner: usize, color: PlayerColor) -> bool {
         self.structures[r][q][corner].is_none()
         && corner_corner_neighbors(r, q, corner).all(
-            |(r_, q_, c_)| self.structures[r_][q_][c_].is_none()
+            |[r_, q_, c_]| self.structures[r_][q_][c_].is_none()
         )
-        && corner_edge_neighbors(r, q, corner).any(|(r_, q_, e_)| self.road_is_color(r_, q_, e_, color))
+        && corner_edge_neighbors(r, q, corner).any(|[r_, q_, e_]| self.road_is_color(r_, q_, e_, color))
     }
 
     fn can_place_setup_settlement(&self, r: usize, q: usize, corner: usize) -> bool {
         self.structures[r][q][corner].is_none()
         && corner_corner_neighbors(r, q, corner).all(
-            |(r_, q_, c_)| self.structures[r_][q_][c_].is_none()
+            |[r_, q_, c_]| self.structures[r_][q_][c_].is_none()
         )
     }
 
     fn place_settlement(&mut self, r: usize, q: usize, corner: usize, color: PlayerColor) {
-        for (r, q, c) in get_dup_corners(r, q, corner) {
+        for [r, q, c] in get_dup_corners(r, q, corner) {
             self.structures[r][q][c] = Some(Structure {
                 structure_type: StructureType::Settlement,
                 color
@@ -439,7 +447,7 @@ impl Board {
 
     fn upgrade_to_city(&mut self, r: usize, q: usize, corner: usize) {
         let color = self.structures[r][q][corner].unwrap().color;
-        for (r, q, c) in get_dup_corners(r, q, corner) {
+        for [r, q, c] in get_dup_corners(r, q, corner) {
             self.structures[r][q][c] = Some(Structure {
                 structure_type: StructureType::City,
                 color
@@ -453,8 +461,8 @@ impl Board {
 
     fn give_resources(&self, roll: usize) -> Vec<Hand> {
         let mut new_cards: Vec<Hand> = vec![Hand::new(); self.num_players];
-        for (r, q) in BOARD_COORDS {
-            if (r, q) == self.robber {
+        for [r, q] in BOARD_COORDS {
+            if [r, q] == self.robber {
                 continue;
             }
             if let Some(hex) = self.hexes[r][q] {
@@ -687,7 +695,7 @@ impl Player {
     fn move_robber(&self) -> Option<usize> {
         let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
         let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
-        self.board.borrow_mut().robber = (r, q);
+        self.board.borrow_mut().robber = [r, q];
         let colors = self.board.borrow().get_colors_on_hex(r, q);
         if colors.len() > 0 {
             println!("Steal from one of: {}", colors.iter().map(|c| format!("{}", c)).collect::<Vec<String>>().join(","));
@@ -826,52 +834,52 @@ fn is_on_board(r: usize, q: usize) -> bool {
     r < 5 && q < 5 && r + q >= 2 && r + q <= 6
 }
 
-const DIRS: [(isize, isize); 6] = [
-    (-1, 0),
-    (-1, 1),
-    (0, 1),
-    (1, 0),
-    (1, -1),
-    (0, -1)
+const DIRS: [[isize; 2]; 6] = [
+    [-1, 0],
+    [-1, 1],
+    [0, 1],
+    [1, 0],
+    [1, -1],
+    [0, -1]
 ];
 
-fn get_dup_corners(r: usize, q: usize, corner: usize) -> Vec<(usize, usize, usize)> {
-    let mut dups = vec![(r, q, corner)];
-    let neighbor1 = ((r as isize + DIRS[corner].0) as usize, (q as isize + DIRS[corner].1) as usize);
-    if is_on_board(neighbor1.0, neighbor1.1) {
-        dups.push((neighbor1.0, neighbor1.1, (corner + 2) % 6));
+fn get_dup_corners(r: usize, q: usize, corner: usize) -> Vec<[usize; 3]> {
+    let mut dups = vec![[r, q, corner]];
+    let neighbor1 = [(r as isize + DIRS[corner][0]) as usize, (q as isize + DIRS[corner][1]) as usize];
+    if is_on_board(neighbor1[0], neighbor1[1]) {
+        dups.push([neighbor1[0], neighbor1[1], (corner + 2) % 6]);
     }
-    let neighbor2 = ((r as isize + DIRS[(corner + 1) % 6].0) as usize, (q as isize + DIRS[(corner + 1) % 6].1) as usize);
-    if is_on_board(neighbor2.0, neighbor2.1) {
-        dups.push((neighbor2.0, neighbor2.1, (corner + 4) % 6));
-    }
-    dups
-}
-
-fn get_dup_edges(r: usize, q: usize, edge: usize) -> Vec<(usize, usize, usize)> {
-    let mut dups = vec![(r, q, edge)];
-    let neighbor = ((r as isize + DIRS[edge].0) as usize, (q as isize + DIRS[edge].1) as usize);
-    if is_on_board(neighbor.0, neighbor.1) {
-        dups.push((neighbor.0, neighbor.1, (edge + 3) % 6));
+    let neighbor2 = [(r as isize + DIRS[(corner + 1) % 6][0]) as usize, (q as isize + DIRS[(corner + 1) % 6][1]) as usize];
+    if is_on_board(neighbor2[0], neighbor2[1]) {
+        dups.push([neighbor2[0], neighbor2[1], (corner + 4) % 6]);
     }
     dups
 }
 
-fn corner_corner_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = (usize, usize, usize)> {
-    get_dup_corners(r, q, corner).into_iter().map(move |(r_, q_, c)| (r_, q_, (c + 1) % 6))
+fn get_dup_edges(r: usize, q: usize, edge: usize) -> Vec<[usize; 3]> {
+    let mut dups = vec![[r, q, edge]];
+    let neighbor = [(r as isize + DIRS[edge][0]) as usize, (q as isize + DIRS[edge][1]) as usize];
+    if is_on_board(neighbor[0], neighbor[1]) {
+        dups.push([neighbor[0], neighbor[1], (edge + 3) % 6]);
+    }
+    dups
 }
 
-fn edge_edge_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = (usize, usize, usize)> {
-    get_dup_edges(r, q, edge).into_iter().flat_map(move |(r_, q_, e)|
-        [1, 5].into_iter().map(move |step_e| (r_, q_, (e + step_e) % 6))
+fn corner_corner_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 3]> {
+    get_dup_corners(r, q, corner).into_iter().map(move |[r_, q_, c]| [r_, q_, (c + 1) % 6])
+}
+
+fn edge_edge_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = [usize; 3]> {
+    get_dup_edges(r, q, edge).into_iter().flat_map(move |[r_, q_, e]|
+        [1, 5].into_iter().map(move |step_e| [r_, q_, (e + step_e) % 6])
     )
 }
 
-fn corner_edge_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = (usize, usize, usize)> {
+fn corner_edge_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 3]> {
     get_dup_corners(r, q, corner).into_iter() // hehe
 }
 
-fn edge_cor_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = (usize, usize, usize)> {
+fn edge_cor_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = [usize; 3]> {
     get_dup_edges(r, q, edge).into_iter()
 }
 
@@ -1029,6 +1037,6 @@ async fn main() {
 
     loop {
         render_board(&board);
-        next_frame().await
+        macroquad::window::next_frame().await
     }
 }
