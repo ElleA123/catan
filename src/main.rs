@@ -152,7 +152,7 @@ impl Display for Hex {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ResHand([usize; 5]);
+pub struct ResHand([usize; 5]);
 
 const STARTING_BANK_HAND: ResHand = ResHand([19, 19, 19, 19, 19]);
 const STARTING_DV_BANK: [DVCard; 25] = [
@@ -282,7 +282,7 @@ impl ResHand {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct DVHand([usize; 5]);
+pub struct DVHand([usize; 5]);
 
 impl Index<DVCard> for DVHand {
     type Output = usize;
