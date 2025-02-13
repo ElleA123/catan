@@ -209,8 +209,8 @@ fn render_port(coord: [f32; 3], port: Port, scale: f32) {
 
     let [x, y, rotation] = coord;
     let color = match port {
-        Port::Three => WHITE,
-        Port::Two(res) => res.into()
+        Port::ThreeForOne => WHITE,
+        Port::TwoForOne(res) => res.into()
     };
 
     draw_poly(x, y, 4, radius, rotation, color);
