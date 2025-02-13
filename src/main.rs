@@ -39,11 +39,11 @@ impl Into<macroquad::color::Color> for PlayerColor {
 
 #[derive(Debug, Clone, Copy)]
 enum Resource {
-    Wood=0,
-    Brick=1,
-    Wheat=2,
-    Sheep=3,
-    Ore=4,
+    Wood,
+    Brick,
+    Wheat,
+    Sheep,
+    Ore,
 }
 
 const RESOURCES: [Resource; 5] = [
@@ -68,11 +68,11 @@ impl Into<macroquad::color::Color> for Resource {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum DVCard {
-    Knight=0,
-    RoadBuilding=1,
-    YearOfPlenty=2,
-    Monopoly=3,
-    VictoryPoint=4
+    Knight,
+    RoadBuilding,
+    YearOfPlenty,
+    Monopoly,
+    VictoryPoint
 }
 
 const DV_CARDS: [DVCard; 5] = [
@@ -329,6 +329,18 @@ const BOARD_COORDS: [[usize; 2]; 19] = [
     [3, 0], [3, 1], [3, 2], [3, 3],
     [4, 0], [4, 1], [4, 2]
 ];
+
+// const fn corner_coords() -> [[usize; 3]; 54] {
+//
+// }
+//
+// const fn edge_coords() -> [[usize; 3]; 72] {
+//
+// }
+//
+// const CORNER_COORDS: [[usize; 3]; 54] = corner_coords();
+// const EDGE_COORDS: [[usize; 3]; 72] = edge_coords();
+
 const PORT_COORDS: [[usize; 3]; 9] = [
     [0, 3, 0], [0, 4, 1], [1, 4, 2],
     [3, 3, 2], [4, 2, 3], [4, 1, 4],
@@ -839,14 +851,6 @@ impl Player {
     // }
 }
 
-enum TurnStatus {
-    Finished,
-    Rolling,
-    PlayedDV(DVCard),
-    TradeOffer(ResHand, ResHand),
-    Win
-}
-
 //// Coordinate manipulation
 // - Hex coords: axial coordinates (r, q)
 // r loosely corresponds with row, q with col.
@@ -869,7 +873,7 @@ const COORD_DIRS: [[isize; 2]; 6] = [
     [0, -1]
 ];
 
-fn is_on_board(r: usize, q: usize) -> bool {
+const fn is_on_board(r: usize, q: usize) -> bool {
     r < 5 && q < 5 && r + q >= 2 && r + q <= 6
 }
 
@@ -893,6 +897,62 @@ fn get_dup_edges(r: usize, q: usize, edge: usize) -> impl Iterator<Item = [usize
         dups.push([neighbor[0], neighbor[1], (edge + 3) % 6]);
     }
     dups.into_iter()
+}
+
+const fn reduce_corner(r: usize, q: usize, corner: usize) -> [usize; 3] {
+    match corner {
+        0 => if r != 0 && is_on_board(r - 1, q) {
+            [r - 1, q, 2]
+        } else if r != 0 && is_on_board(r - 1, q + 1) {
+            [r - 1, q + 1, 4]
+        } else {
+            [r, q, 0]
+        },
+        1 => if r != 0 && is_on_board(r - 1, q + 1) {
+            [r - 1, q + 1, 3]
+        } else {
+            [r, q, 1]
+        },
+        2 => [r, q, 2],
+        3 => [r, q, 3],
+        4 => if q != 0 && is_on_board(r, q - 1) {
+            [r, q - 1, 2]
+        } else {
+            [r, q, 4]
+        },
+        5 => if r != 0 && is_on_board(r - 1, q) {
+            [r - 1, q, 3]
+        } else if q != 0 && is_on_board(r, q - 1) {
+            [r, q - 1, 1]
+        } else {
+            [r, q, 5]
+        },
+        _ => panic!("main::reduce_corner(): invalid corner")
+    }
+}
+
+const fn reduce_edge(r: usize, q: usize, edge: usize) -> [usize; 3] {
+    match edge {
+        0 => if r != 0 && is_on_board(r - 1, q) {
+            [r - 1, q, 3]
+        } else {
+            [r, q, 0]
+        },
+        1 => if r != 0 && is_on_board(r - 1, q + 1) {
+            [r - 1, q + 1, 4]
+        } else {
+            [r, q, 1]
+        },
+        2 => [r, q, 2],
+        3 => [r, q, 3],
+        4 => [r, q, 4],
+        5 => if q != 0 && is_on_board(r, q - 1) {
+            [r, q - 1, 2]
+        } else {
+            [r, q, 5]
+        },
+        _ => panic!("main::reduce_edge(): invalid edge")
+    }
 }
 
 fn corner_corner_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 3]> {
@@ -1010,21 +1070,57 @@ fn get_roll<R: Rng + ?Sized>(rng: &mut R) -> usize {
 //     println!("{} wins!", winner);
 // }
 
-#[macroquad::main("Catan")]
-async fn main() {
-    let mut rng = rand::rng();
-    let num_players = 4;
-    let mut board = Board::new(num_players, &mut rng);
+enum Action {
+    Idling,
+    Discarding,
+    MovingRobber,
+    BuildingRoad,
+    BuildingSettlement,
+    UpgradingToCity,
+    OfferingTrade,
+}
 
-    board.place_settlement(2, 2, 0, PlayerColor::Blue);
-    board.upgrade_to_city(2, 2, 0);
-    board.place_road(2, 2, 0, PlayerColor::Blue);
+pub struct TurnState {
+    action: Action,
+    roll: Option<[usize; 2]>,
+    played_dv: bool,
+    offered_trade: Option<(ResHand, ResHand)>
+}
 
-    let test_res_hand = ResHand([1, 1, 2, 3, 4]);
-    let test_dv_hand = DVHand([1, 2, 4, 3, 1]);
+// #[macroquad::main("Catan")]
+// async fn main() {
+//     let mut rng = rand::rng();
+//     let num_players = 4;
+//     let mut board = Board::new(num_players, &mut rng);
 
-    loop {
-        render_screen(&board, &test_res_hand, &test_dv_hand);
-        macroquad::window::next_frame().await
-    }
+//     board.place_settlement(2, 2, 3, PlayerColor::Orange);
+//     board.place_settlement(2, 2, 0, PlayerColor::Blue);
+//     board.upgrade_to_city(2, 2, 0);
+//     board.place_road(2, 2, 0, PlayerColor::Blue);
+
+//     let empty_hand = ResHand::new();
+//     let full_hand = ResHand([1, 1, 2, 0, 3]);
+//     let full_dv_hand = DVHand([1, 0, 0, 1, 1]);
+
+//     let pre_roll = TurnState {
+//         action: Action::Idling,
+//         roll: None,
+//         played_dv: false,
+//         offered_trade: None
+//     };
+//     let post_roll = TurnState {
+//         action: Action::Idling,
+//         roll: Some([3, 4]),
+//         played_dv: false,
+//         offered_trade: None
+//     };
+
+//     loop {
+//         render_screen(&board, &full_hand, &full_dv_hand, &post_roll);
+//         macroquad::window::next_frame().await
+//     }
+// }
+
+fn main() {
+    println!("{:?}", reduce_edge(2, 0, 0));
 }
