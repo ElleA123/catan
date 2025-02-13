@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
-use render::render_board;
+use render::render_screen;
 
 //// Typedefs
 #[derive(Debug, Clone, Copy)]
@@ -16,6 +16,14 @@ enum Resource {
     Sheep=3,
     Ore=4,
 }
+
+const RESOURCES: [Resource; 5] = [
+    Resource::Wood,
+    Resource::Brick,
+    Resource::Wheat,
+    Resource::Sheep,
+    Resource::Ore
+];
 
 impl Display for Resource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -39,6 +47,35 @@ impl Into<macroquad::color::Color> for Resource {
             Resource::Sheep => macroquad::color::GREEN,
             Resource::Ore => macroquad::color::GRAY
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DVCard {
+    Knight=0,
+    RoadBuilding=1,
+    YearOfPlenty=2,
+    Monopoly=3,
+    VictoryPoint=4
+}
+
+const DV_CARDS: [DVCard; 5] = [
+    DVCard::Knight,
+    DVCard::RoadBuilding,
+    DVCard::YearOfPlenty,
+    DVCard::Monopoly,
+    DVCard::VictoryPoint
+];
+
+impl DVCard {
+    fn into_label(&self) -> String {
+        String::from(match self {
+            DVCard::Knight => "KN",
+            DVCard::RoadBuilding => "RB",
+            DVCard::YearOfPlenty => "YP",
+            DVCard::Monopoly => "MN",
+            DVCard::VictoryPoint => "VP"
+        })
     }
 }
 
@@ -115,52 +152,77 @@ impl Display for Hex {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Hand([usize; 5]);
+struct ResHand([usize; 5]);
 
-const STARTING_BANK_HAND: Hand = Hand([19, 19, 19, 19, 19]);
+const STARTING_BANK_HAND: ResHand = ResHand([19, 19, 19, 19, 19]);
 const STARTING_DV_BANK: [DVCard; 25] = [
     DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight,
     DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight,
     DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::RoadBuilding,
-    DVCard::RoadBuilding, DVCard::YOP, DVCard::YOP, DVCard::Monopoly, DVCard::Monopoly,
-    DVCard::VP, DVCard::VP, DVCard::VP, DVCard::VP, DVCard::VP,
+    DVCard::RoadBuilding, DVCard::YearOfPlenty, DVCard::YearOfPlenty, DVCard::Monopoly, DVCard::Monopoly,
+    DVCard::VictoryPoint, DVCard::VictoryPoint, DVCard::VictoryPoint, DVCard::VictoryPoint, DVCard::VictoryPoint,
 ];
 
-const ROAD_HAND: Hand = Hand([1, 1, 0, 0, 0]);
-const SETTLEMENT_HAND: Hand = Hand([1, 1, 1, 1, 0]);
-const CITY_HAND: Hand = Hand([0, 0, 2, 0, 3]);
-const DV_CARD_HAND: Hand = Hand([0, 0, 1, 1, 1]);
+const ROAD_HAND: ResHand = ResHand([1, 1, 0, 0, 0]);
+const SETTLEMENT_HAND: ResHand = ResHand([1, 1, 1, 1, 0]);
+const CITY_HAND: ResHand = ResHand([0, 0, 2, 0, 3]);
+const DV_CARD_HAND: ResHand = ResHand([0, 0, 1, 1, 1]);
 
-impl Hand {
-    fn new() -> Hand {
-        Hand([0; 5])
+impl Index<Resource> for ResHand {
+    type Output = usize;
+    fn index(&self, index: Resource) -> &Self::Output {
+        match index {
+            Resource::Wood => &self.0[0],
+            Resource::Brick => &self.0[1],
+            Resource::Wheat => &self.0[2],
+            Resource::Sheep => &self.0[3],
+            Resource::Ore => &self.0[4],
+        }
+    }
+}
+
+impl IndexMut<Resource> for ResHand {
+    fn index_mut(&mut self, index: Resource) -> &mut Self::Output {
+        match index {
+            Resource::Wood => &mut self.0[0],
+            Resource::Brick => &mut self.0[1],
+            Resource::Wheat => &mut self.0[2],
+            Resource::Sheep => &mut self.0[3],
+            Resource::Ore => &mut self.0[4],
+        }
+    }
+}
+
+impl ResHand {
+    fn new() -> ResHand {
+        ResHand([0; 5])
     }
 
-    fn from_card(card: usize) -> Hand {
-        let mut hand = Hand::new();
+    fn from(card: Resource) -> ResHand {
+        let mut hand = ResHand::new();
         hand[card] = 1;
         hand
     }
 
-    fn from_input() -> Hand {
-        let mut hand = Hand::new();
-        hand[0] = get_input_and_parse("wood: ", "type: usize");
-        hand[1] = get_input_and_parse("brick: ", "type: usize");
-        hand[2] = get_input_and_parse("wheat: ", "type: usize");
-        hand[4] = get_input_and_parse("sheep: ", "type: usize");
-        hand[0] = get_input_and_parse("ore: ", "type: usize");
+    fn from_input() -> ResHand {
+        let mut hand = ResHand::new();
+        hand[Resource::Wood] = get_input_and_parse("wood: ", "type: usize");
+        hand[Resource::Brick] = get_input_and_parse("brick: ", "type: usize");
+        hand[Resource::Wheat] = get_input_and_parse("wheat: ", "type: usize");
+        hand[Resource::Sheep] = get_input_and_parse("sheep: ", "type: usize");
+        hand[Resource::Ore] = get_input_and_parse("ore: ", "type: usize");
         hand
     }
 
-    fn sized_from_input(size: usize) -> Hand {
+    fn sized_from_input(size: usize) -> ResHand {
         let mut hand;
         loop {
-            hand = Hand::new();
-            hand[0] = get_input_and_parse("wood: ", "type: usize");
-            hand[1] = get_input_and_parse("brick: ", "type: usize");
-            hand[2] = get_input_and_parse("wheat: ", "type: usize");
-            hand[4] = get_input_and_parse("sheep: ", "type: usize");
-            hand[0] = get_input_and_parse("ore: ", "type: usize");
+            hand = ResHand::new();
+            hand[Resource::Wood] = get_input_and_parse("wood: ", "type: usize");
+            hand[Resource::Brick] = get_input_and_parse("brick: ", "type: usize");
+            hand[Resource::Wheat] = get_input_and_parse("wheat: ", "type: usize");
+            hand[Resource::Sheep] = get_input_and_parse("sheep: ", "type: usize");
+            hand[Resource::Ore] = get_input_and_parse("ore: ", "type: usize");
             if hand.size() == size {
                 return hand;
             }
@@ -169,8 +231,8 @@ impl Hand {
     }
 
     fn clear(&mut self) {
-        for i in 0..5 {
-            self[i] = 0;
+        for res in RESOURCES {
+            self[res] = 0;
         }
     }
 
@@ -178,57 +240,112 @@ impl Hand {
         self.0.iter().sum()
     }
 
-    fn add(&mut self, rhs: Hand) {
-        for i in 0..self.0.len() {
-            self[i] += rhs[i];
+    fn add(&mut self, rhs: ResHand) {
+        for res in RESOURCES {
+            self[res] += rhs[res];
         }
     }
 
-    fn can_disc(&self, rhs: Hand) -> bool {
-        (0..self.0.len()).all(|i| self[i] >= rhs[i])
+    fn can_disc(&self, rhs: ResHand) -> bool {
+        RESOURCES.iter().all(|&res| self[res] >= rhs[res])
     }
 
-    fn pop_random<R: Rng + ?Sized>(&mut self, rng: &mut R) -> usize {
+    fn pop_random<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Resource {
         let mut selected = rng.random_range(0..self.size());
-        for (idx, count) in self.0.iter().enumerate() {
-            if selected < *count {
-                self[idx] -= 1;
-                return idx;
+        for res in RESOURCES {
+            let count = self[res];
+            if selected < count {
+                self[res] -= 1;
+                return res;
             } else {
                 selected -= count;
             }
         }
-        println!("pop_random bugged");
-        return 0
+        panic!("pop_random bugged");
     }
 
-    fn discard(&mut self, rhs: Hand) {
-        for i in 0..self.0.len() {
-            self[i] -= rhs[i];
+    fn discard(&mut self, rhs: ResHand) {
+        for res in RESOURCES {
+            self[res] -= rhs[res];
         }
     }
 
-    fn disc_max(&mut self, rhs: Hand) {
-        for i in 0..self.0.len() {
-            if self[i] >= rhs[i] {
-                self[i] -= rhs[i];
+    fn disc_max(&mut self, rhs: ResHand) {
+        for res in RESOURCES {
+            if self[res] >= rhs[res] {
+                self[res] -= rhs[res];
             } else {
-                self[i] = 0;
+                self[res] = 0;
             }
         }
     }
 }
 
-impl Index<usize> for Hand {
+#[derive(Debug, Clone, Copy)]
+struct DVHand([usize; 5]);
+
+impl Index<DVCard> for DVHand {
     type Output = usize;
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
+    fn index(&self, index: DVCard) -> &Self::Output {
+        match index {
+            DVCard::Knight => &self.0[0],
+            DVCard::RoadBuilding => &self.0[1],
+            DVCard::YearOfPlenty => &self.0[2],
+            DVCard::Monopoly => &self.0[3],
+            DVCard::VictoryPoint => &self.0[4],
+        }
     }
 }
 
-impl IndexMut<usize> for Hand {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0[index]
+impl IndexMut<DVCard> for DVHand {
+    fn index_mut(&mut self, index: DVCard) -> &mut Self::Output {
+        match index {
+            DVCard::Knight => &mut self.0[0],
+            DVCard::RoadBuilding => &mut self.0[1],
+            DVCard::YearOfPlenty => &mut self.0[2],
+            DVCard::Monopoly => &mut self.0[3],
+            DVCard::VictoryPoint => &mut self.0[4],
+        }
+    }
+}
+
+impl DVHand {
+    fn new() -> DVHand {
+        DVHand([0; 5])
+    }
+
+    fn from(card: DVCard) -> DVHand {
+        let mut hand = DVHand::new();
+        hand[card] = 1;
+        hand
+    }
+
+    fn clear(&mut self) {
+        for dv in DV_CARDS {
+            self[dv] = 0;
+        }
+    }
+
+    fn size(&self) -> usize {
+        self.0.iter().sum()
+    }
+
+    fn add_card(&mut self, card: DVCard) {
+        self[card] += 1;
+    }
+
+    fn add(&mut self, rhs: DVHand) {
+        for dv in DV_CARDS {
+            self[dv] += rhs[dv];
+        }
+    }
+
+    fn can_discard(&self, card: DVCard) -> bool {
+        self[card] != 0
+    }
+
+    fn discard(&mut self, card: DVCard) {
+        self[card] -= 1;
     }
 }
 
@@ -271,7 +388,7 @@ pub struct Board {
     structures: [[[Option<Structure>; 6]; 5]; 5],
     roads: [[[Option<PlayerColor>; 6]; 5]; 5],
     robber: [usize; 2],
-    bank: Hand,
+    bank: ResHand,
     dv_bank: Vec<DVCard>,
 }
 
@@ -446,8 +563,8 @@ impl Board {
         self.dv_bank.pop().unwrap()
     }
 
-    fn give_resources(&self, roll: usize) -> Vec<Hand> {
-        let mut new_cards: Vec<Hand> = vec![Hand::new(); self.num_players];
+    fn give_resources(&self, roll: usize) -> Vec<ResHand> {
+        let mut new_cards: Vec<ResHand> = vec![ResHand::new(); self.num_players];
         for [r, q] in BOARD_COORDS {
             if [r, q] == self.robber {
                 continue;
@@ -456,7 +573,7 @@ impl Board {
                 if hex.number == roll {
                     for corner in self.structures[r][q] {
                         if let Some(s) = corner {
-                            new_cards[s.color as usize][hex.resource as usize] += match s.structure_type {
+                            new_cards[s.color as usize][hex.resource] += match s.structure_type {
                                 StructureType::Settlement => 1,
                                 StructureType::City => 2
                             };
@@ -469,19 +586,11 @@ impl Board {
     }
 }
 
-enum DVCard {
-    Knight=0,
-    RoadBuilding=1,
-    YOP=2,
-    Monopoly=3,
-    VP=4
-}
-
 enum TurnStatus {
     Finished,
     Rolling,
-    PlayedDV(usize),
-    TradeOffer(Hand, Hand),
+    PlayedDV(DVCard),
+    TradeOffer(ResHand, ResHand),
     Win
 }
 
@@ -490,9 +599,9 @@ struct Player {
     is_human: bool,
     board: Rc<RefCell<Board>>,
     vps: usize,
-    hand: Hand,
-    dvs: Hand,
-    new_dvs: Hand,
+    hand: ResHand,
+    dvs: DVHand,
+    new_dvs: DVHand,
     knights: usize,
     road_len: usize,
     road_pool: usize,
@@ -507,9 +616,9 @@ impl Player {
             is_human,
             board,
             vps: 0,
-            hand: Hand::new(),
-            dvs: Hand::new(),
-            new_dvs: Hand::new(),
+            hand: ResHand::new(),
+            dvs: DVHand::new(),
+            new_dvs: DVHand::new(),
             knights: 0,
             road_len: 0,
             road_pool: 15,
@@ -518,12 +627,12 @@ impl Player {
         }
     }
 
-    fn get_resources(&mut self, got: Hand) {
+    fn get_resources(&mut self, got: ResHand) {
         self.hand.add(got);
         self.board.borrow_mut().bank.disc_max(got);
     }
 
-    fn discard_resources(&mut self, lost: Hand) -> bool {
+    fn discard_resources(&mut self, lost: ResHand) -> bool {
         if self.hand.can_disc(lost) {
             self.hand.discard(lost);
             self.board.borrow_mut().bank.add(lost);
@@ -615,7 +724,7 @@ impl Player {
         let can_draw = self.board.borrow().dv_bank.len() > 0;
         if self.hand.can_disc(DV_CARD_HAND) && can_draw {
             self.discard_resources(DV_CARD_HAND);
-            self.new_dvs.add(Hand::from_card(self.board.borrow_mut().draw_dv_card() as usize));
+            self.new_dvs.add_card(self.board.borrow_mut().draw_dv_card());
             true
         } else {
             false
@@ -630,24 +739,25 @@ impl Player {
         }
     }
 
-    fn play_dv_card(&mut self, card: usize) -> bool {
+    fn play_dv_card(&mut self, card: DVCard) -> bool {
         if self.dvs[card] > 0 {
             self.dvs[card] -= 1;
             match card {
-                0 => {}, // Knight
-                1 => {}, // RB
-                2 => {}, // YOP
-                3 => {}, // Monopoly
-                _ => panic!("Player::play_dv_card(): Invalid DVCard")
+                DVCard::Knight => {}, // Knight
+                DVCard::RoadBuilding => {}, // RB
+                DVCard::YearOfPlenty => {}, // YearOfPlenty
+                DVCard::Monopoly => {}, // Monopoly
+                DVCard::VictoryPoint => return false
             }
             return true;
         }
         return false;
     }
 
-    fn input_and_play_dv_card(&mut self) -> usize {
+    fn input_and_play_dv_card(&mut self) -> DVCard {
         loop {
-            let card = get_specific_input("DV card:", "usize < 4 (can't play VPS)", |n| n < 4);
+            let id: usize = get_specific_input("DV card:", "usize < 4 (can't play VPS)", |n| n < 4);
+            let card = DV_CARDS[id];
             if self.play_dv_card(card) {
                 return card;
             } else {
@@ -656,24 +766,24 @@ impl Player {
         }
     }
 
-    fn offer_trade(&self) -> (Hand, Hand) {
+    fn offer_trade(&self) -> (ResHand, ResHand) {
         let mut give;
         loop {
-            give = Hand::from_input();
+            give = ResHand::from_input();
             if self.hand.can_disc(give) {
                 break;
             }
         }
-        let get = Hand::from_input();
+        let get = ResHand::from_input();
         (give, get)
     }
 
     fn handle_robber(&mut self) {
         if self.hand.size() > 7 {
             let amt_discarded = self.hand.size() / 2;
-            let mut discarded = Hand::sized_from_input(amt_discarded);
+            let mut discarded = ResHand::sized_from_input(amt_discarded);
             while !(self.hand.can_disc(discarded)) {
-                discarded = Hand::sized_from_input(amt_discarded);
+                discarded = ResHand::sized_from_input(amt_discarded);
             }
             self.discard_resources(discarded);
         }
@@ -692,7 +802,7 @@ impl Player {
         }
     }
 
-    fn respond_to_trade(&self, give: Hand, get: Hand) -> bool {
+    fn respond_to_trade(&self, give: ResHand, get: ResHand) -> bool {
         return true; // TODO - add choice
     }
 
@@ -961,7 +1071,7 @@ pub fn play_game(num_players: usize) {
                     }
                     if let Some(robbed) = players[turn].move_robber() {
                         let card_robbed = players[robbed].hand.pop_random(&mut rng);
-                        players[turn].get_resources(Hand::from_card(card_robbed));
+                        players[turn].get_resources(ResHand::from(card_robbed));
                     }
                 }
             },
@@ -1022,8 +1132,11 @@ async fn main() {
     board.upgrade_to_city(2, 2, 0);
     board.place_road(2, 2, 0, PlayerColor::Blue);
 
+    let test_res_hand = ResHand([1, 1, 2, 3, 4]);
+    let test_dv_hand = DVHand([1, 2, 4, 3, 1]);
+
     loop {
-        render_board(&board);
+        render_screen(&board, &test_res_hand, &test_dv_hand);
         macroquad::window::next_frame().await
     }
 }

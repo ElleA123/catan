@@ -1,30 +1,91 @@
 use macroquad::prelude::*;
 
-use crate::{get_dup_corners, get_dup_edges, Board, Hex, Port, StructureType};
+use crate::{Board, DVCard, DVHand, Hex, Port, ResHand, Resource, StructureType, DV_CARDS, RESOURCES};
 use crate::{BOARD_COORDS, PORT_COORDS};
+use crate::{get_dup_corners, get_dup_edges};
 
 const SQRT_3: f32 = 1.732050807568877293527446341505872367_f32;
+
+struct Zone {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32
+}
+
+impl Zone {
+    fn new(
+        screen_width: f32, screen_height: f32, x_factor: f32, y_factor: f32, width_factor: f32, height_factor: f32
+    ) -> Zone {
+        Zone {
+            x: screen_width * x_factor,
+            y: screen_height * y_factor,
+            width: screen_width * width_factor,
+            height: screen_height * height_factor
+        }
+    }
+}
+
+struct BoardPoints {
+    centers: [[f32; 2]; 19],
+    corners: [[f32; 2]; 54],
+    edges: [[f32; 2]; 72],
+    board_point_radius: f32
+}
+
+struct HandPoints {
+    cards: [[f32; 2]; 10],
+    card_size: [f32; 2],
+    num_cards: usize,
+}
+
+struct UIPoints {
+    buttons: [[f32; 2]; 5],
+    button_size: f32
+}
 
 pub struct ActionPoints {
     centers: [[f32; 2]; 19],
     corners: [[f32; 2]; 54],
-    edges: [[f32; 2]; 72]
+    edges: [[f32; 2]; 72],
+    board_point_radius: f32,
+    cards: [[f32; 2]; 10],
+    card_size: [f32; 2],
+    num_cards: usize,
+    buttons: [[f32; 2]; 5],
+    button_size: f32,
 }
 
-fn get_centers(width: f32, height: f32, scale: f32) -> [[f32; 2]; 19] {
+impl ActionPoints {
+    fn new(board_points: BoardPoints, hand_points: HandPoints, ui_points: UIPoints) -> ActionPoints {
+        ActionPoints {
+            centers: board_points.centers,
+            corners: board_points.corners,
+            edges: board_points.edges,
+            board_point_radius: board_points.board_point_radius,
+            cards: hand_points.cards,
+            card_size: hand_points.card_size,
+            num_cards: hand_points.num_cards,
+            buttons: ui_points.buttons,
+            button_size: ui_points.button_size
+        }
+    }
+}
+
+fn get_centers(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 19] {
     let q_shift: f32 = scale * SQRT_3;
     let r_shift_x: f32 = scale * 0.5 * SQRT_3;
     let r_shift_y: f32 = scale * 1.5;
 
-    let start_x: f32 = 0.5 * width - (2.0 * q_shift + 2.0 * r_shift_x);
-    let start_y: f32 = 0.5 * height - (2.0 * r_shift_y);
+    let start_x: f32 = x + 0.5 * width - (2.0 * q_shift + 2.0 * r_shift_x);
+    let start_y: f32 = y + 0.5 * height - (2.0 * r_shift_y);
 
     let mut centers = [[0.0; 2]; 19];
     for idx in 0..BOARD_COORDS.len() {
         let [r, q] = BOARD_COORDS[idx];
-        let x = start_x + q_shift * q as f32 + r_shift_x * r as f32;
-        let y = start_y + r_shift_y * r as f32;
-        centers[idx] = [x, y];
+        let x_ = start_x + q_shift * q as f32 + r_shift_x * r as f32;
+        let y_ = start_y + r_shift_y * r as f32;
+        centers[idx] = [x_, y_];
     }
     centers
 }
@@ -66,19 +127,19 @@ fn get_edges(centers: &[[f32; 2]; 19], scale: f32) -> [[f32; 2]; 72] {
     edges
 }
 
-fn get_ports(width: f32, height: f32, scale: f32) -> [[f32; 3]; 9] {
+fn get_ports(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 3]; 9] {
     let stretch_factor = 1.5;
     let q_shift: f32 = scale * SQRT_3;
     let r_shift_x: f32 = scale * 0.5 * SQRT_3;
     let r_shift_y: f32 = scale * 1.5;
 
-    let start_x: f32 = 0.5 * width - (2.0 * q_shift + 2.0 * r_shift_x);
-    let start_y: f32 = 0.5 * height - (2.0 * r_shift_y);
+    let start_x: f32 = x + 0.5 * width - (2.0 * q_shift + 2.0 * r_shift_x);
+    let start_y: f32 = y + 0.5 * height - (2.0 * r_shift_y);
 
     let mut coords = [[0.0; 3]; 9];
     for idx in 0..PORT_COORDS.len() {
         let [r, q, e] = PORT_COORDS[idx];
-        let x = start_x + q_shift * q as f32 + r_shift_x * r as f32
+        let x_ = start_x + q_shift * q as f32 + r_shift_x * r as f32
         + stretch_factor * match e {
             0 => -0.25 * SQRT_3 * scale,
             1 => 0.25 * SQRT_3 * scale,
@@ -88,7 +149,7 @@ fn get_ports(width: f32, height: f32, scale: f32) -> [[f32; 3]; 9] {
             5 => -0.5 * SQRT_3 * scale,
             _ => panic!("render::get_ports(): invalid edge")
         };
-        let y = start_y + r_shift_y * r as f32
+        let y_ = start_y + r_shift_y * r as f32
         + stretch_factor * match e {
             0 => -0.75 * scale,
             1 => -0.75 * scale,
@@ -98,7 +159,7 @@ fn get_ports(width: f32, height: f32, scale: f32) -> [[f32; 3]; 9] {
             5 => 0.0,
             _ => panic!("render::get_ports(): invalid edge")
         };
-        coords[idx] = [x, y, (e * 60 + 15) as f32];
+        coords[idx] = [x_, y_, (e * 60 + 15) as f32];
     }
     coords
 }
@@ -262,25 +323,154 @@ fn render_structures(board: &Board, centers: &[[f32; 2]; 19], scale: f32) {
     }
 }
 
-pub fn render_board(board: &Board) -> ActionPoints {
-    let width = screen_width();
-    let height = screen_height();
+pub fn render_board(zone: Zone, board: &Board) -> BoardPoints {
+    let Zone { x, y, width, height } = zone;
     let scale = 0.09 * if width > height {height} else {width};
-    let centers = get_centers(width, height, scale);
+    let centers = get_centers(x, y, width, height, scale);
     let corners = get_corners(&centers, scale);
     let edges = get_edges(&centers, scale);
-    let ports = get_ports(width, height, scale);
+    let ports = get_ports(x, y, width, height, scale);
 
-    clear_background(BLUE);
     render_hexes(board, &centers, scale);
     render_ports(board, &ports, scale);
     render_roads(board, &centers, scale);
     render_structures(board, &centers, scale);
 
-    let action_points = ActionPoints {
+    BoardPoints {
         centers,
         corners,
-        edges
-    };
-    return action_points;
+        edges,
+        board_point_radius: scale / 10.0
+    }
+}
+
+fn get_stacks(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 10] {
+    let shift = scale;
+
+    let start_x = x + 0.2 * scale;
+    let y = y + 0.5 * height - 0.5 * scale;
+    
+    let mut stacks = [[0.0, y]; 10];
+    for i in 0..stacks.len() {
+        stacks[i] = [start_x + i as f32 * shift, y];
+    }
+    stacks
+}
+
+fn render_knight(pos: [f32; 2], width: f32, height: f32) {
+    
+}
+
+fn render_road_building(pos: [f32; 2], width: f32, height: f32) {
+    
+}
+
+fn render_year_of_plenty(pos: [f32; 2], width: f32, height: f32) {
+    
+}
+
+fn render_monopoly(pos: [f32; 2], width: f32, height: f32) {
+    
+}
+
+fn render_victory_point(pos: [f32; 2], width: f32, height: f32) {
+    
+}
+
+fn render_test_card(pos: [f32; 2], width: f32, height: f32) {
+    let [x, y] = pos;
+    draw_rectangle(x, y, width, height, DARKGREEN);
+    draw_rectangle_lines(x, y, width, height, 2.0, BLACK);
+}
+
+fn render_count(pos: [f32; 2], width: f32, height: f32, count: usize) {
+    let size = height / 5.0;
+    let font_size = height;
+    let count_offset = height / 3.0;
+
+    let [x, y] = pos;
+    draw_rectangle(x, y, size, size, WHITE);
+    draw_text(count.to_string().as_str(), x, y + count_offset, font_size, BLACK);
+}
+
+fn render_resource(pos: [f32; 2], width: f32, height: f32, resource: Resource, count: usize) {
+    let thickness = height / 20.0;
+
+    let [x, y] = pos;
+    let color = resource.into();
+
+    draw_rectangle(x, y, width, height, color);
+    draw_rectangle_lines(x, y, width, height, thickness, BLACK);
+    render_count(pos, width, height, count);
+}
+
+fn render_dv(pos: [f32; 2], width: f32, height: f32, dv: DVCard, count: usize) {
+    let thickness = height / 20.0;
+    let font_size = height;
+
+    let [x, y] = pos;
+    let label_y = y + height / 2.0;
+
+    draw_rectangle(x, y, width, height, WHITE);
+    draw_rectangle_lines(x, y, width, height, thickness, BLACK);
+    draw_text(dv.into_label().as_str(), x, label_y, font_size, BLACK);
+    render_count(pos, width, height, count);
+}
+
+pub fn render_hand(zone: Zone, hand: &ResHand, dvs: &DVHand) -> HandPoints {
+    let Zone { x, y, width, height } = zone;
+    let scale = if 0.7 * height < width / 10.2 { 0.7 * height } else { width / 10.2 };
+    let card_width = 0.7 * scale;
+    let card_height = scale;
+    let stacks = get_stacks(x, y, width, height, scale);
+
+    let mut num_cards = 0;
+    let mut stack_idx = 0;
+    draw_rectangle(x, y, width, height, BEIGE);
+    for res in RESOURCES {
+        if hand[res] > 0 {
+            render_resource(stacks[stack_idx], card_width, card_height, res, hand[res]);
+            num_cards += 1;
+            stack_idx += 1;
+        }
+    }
+    for dv in DV_CARDS {
+        if dvs[dv] > 0 {
+            render_dv(stacks[stack_idx], card_width, card_height, dv, dvs[dv]);
+            if dv != DVCard::VictoryPoint {
+                num_cards += 1;
+            }
+            stack_idx += 1;
+        }
+    }
+
+    HandPoints {
+        cards: stacks,
+        card_size: [card_width, card_height],
+        num_cards,
+    }
+}
+
+fn render_ui(zone: Zone) -> UIPoints {
+    let Zone { x, y, width: w, height: h } = zone;
+
+    draw_rectangle(x, y, w, h, BEIGE);
+
+    UIPoints {
+        buttons: [[0.0; 2]; 5],
+        button_size: 0.0
+    }
+}
+
+pub fn render_screen(board: &Board, hand: &ResHand, dvs: &DVHand) {
+    let screen_width = screen_width();
+    let screen_height = screen_height();
+    let board_zone = Zone::new(screen_width, screen_height, 0.0, 0.0, 1.0, 0.85);
+    let hand_zone = Zone::new(screen_width, screen_height, 0.0, 0.85, 0.7, 0.15);
+    let ui_zone = Zone::new(screen_width, screen_height, 0.7, 0.85, 0.3, 0.15);
+
+    clear_background(BLUE);
+    let board_points = render_board(board_zone, board);
+    let hand_points = render_hand(hand_zone, hand, dvs);
+    let ui_points = render_ui(ui_zone);
 }
