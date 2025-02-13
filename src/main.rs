@@ -117,10 +117,7 @@ impl Display for Hex {
 #[derive(Debug, Clone, Copy)]
 struct Hand([usize; 5]);
 
-// const STARTING_PLAYER_HAND: Hand = Hand([4, 4, 2, 2, 0]);
-
 const STARTING_BANK_HAND: Hand = Hand([19, 19, 19, 19, 19]);
-// const STARTING_DV_BANK: Hand = Hand([14, 2, 2, 2, 5]);
 const STARTING_DV_BANK: [DVCard; 25] = [
     DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight,
     DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight, DVCard::Knight,
@@ -242,11 +239,6 @@ const BOARD_COORDS: [[usize; 2]; 19] = [
     [3, 0], [3, 1], [3, 2], [3, 3],
     [4, 0], [4, 1], [4, 2]
 ];
-// const PORT_COORDS: [[isize; 2]; 9] = [
-//     [-1, 3], [-1, 5], [1, 5],
-//     [3, 4], [5, 2], [5, 0],
-//     [4, -1], [2, -1], [0, 1]
-// ];
 const PORT_COORDS: [[usize; 3]; 9] = [
     [0, 3, 0], [0, 4, 1], [1, 4, 2],
     [3, 3, 2], [4, 2, 3], [4, 1, 4],
@@ -361,7 +353,7 @@ impl Board {
             roads,
             robber,
             bank: STARTING_BANK_HAND,
-            dv_bank: Vec::from(dv_bank) // maybe this is bad? idrk
+            dv_bank: Vec::from(dv_bank)
         }
     }
 
@@ -399,11 +391,6 @@ impl Board {
             None => false
         }
     }
-
-    // fn get_players_roads<'a>(&'a self, color: PlayerColor) -> impl Iterator<Item = [usize; 3]> + 'a {
-    //     BOARD_COORDS.into_iter().flat_map(|(r, q)| (0..6).map(move |e| (r, q, e)))
-    //     .filter(move |&(r, q, e)|self.road_is_color(r, q, e, color))
-    // }
 
     fn can_place_road(&self, r: usize, q: usize, edge: usize, color: PlayerColor) -> bool {
         self.roads[r][q][edge].is_none()
@@ -880,7 +867,7 @@ fn corner_edge_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Ite
 }
 
 fn edge_cor_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = [usize; 3]> {
-    get_dup_edges(r, q, edge).into_iter()
+    get_dup_edges(r, q, edge).into_iter() // hehe
 }
 
 //// Input
