@@ -27,8 +27,6 @@ impl Zone {
 
 struct BoardPoints {
     centers: [[f32; 2]; 19],
-    // corners: [[[f32; 2]; 6]; 19],
-    // edges: [[[f32; 2]; 6]; 19],
     corners: [[f32; 2]; 54],
     edges: [[f32; 2]; 72],
     board_point_radius: f32
@@ -325,11 +323,18 @@ fn render_city(center: [f32; 2], corner: usize, color: Color, scale: f32) {
 }
 
 fn render_road(center: [f32; 2], edge: usize, color: Color, scale: f32) {
-    let thickness = scale / 15.0;
+    let outline_thickness = scale / 7.0;
+    let thickness = scale / 10.0;
+    let gap = 0.1;
 
-    let [x1, y1] = get_corner(center, edge, scale);
-    let [x2, y2] = get_corner(center, (edge + 5) % 6, scale);
+    let [c_x1, c_y1] = get_corner(center, edge, scale);
+    let [c_x2, c_y2] = get_corner(center, (edge + 5) % 6, scale);
+    let x1 = c_x1 * (1.0 - gap) + gap * c_x2;
+    let x2 = c_x2 * (1.0 - gap) + gap * c_x1;
+    let y1 = c_y1 * (1.0 - gap) + gap * c_y2;
+    let y2 = c_y2 * (1.0 - gap) + gap * c_y1;
 
+    draw_line(x1, y1, x2, y2, outline_thickness,BLACK);
     draw_line(x1, y1, x2, y2, thickness, color);
 }
 
@@ -359,6 +364,19 @@ fn render_structures(board: &Board, centers: &[[f32; 2]; 19], scale: f32) {
     }
 }
 
+fn render_robber(hex: [usize; 2], centers: &[[f32; 2]; 19], scale: f32) {
+    let width = 0.5 * scale;
+    let height = scale;
+    let thickness = scale / 20.0;
+
+    let [mut x, mut y] = centers[BOARD_COORDS.iter().position(|coord| *coord == hex).unwrap()];
+    x -= 0.5 * width;
+    y -= 0.5 * height;
+
+    draw_rectangle(x, y, width, height, GRAY);
+    draw_rectangle_lines(x, y, width, height, thickness, BLACK);
+}
+
 fn render_board(zone: Zone, board: &Board) -> BoardPoints {
     let Zone { x, y, width, height } = zone;
     let scale = 0.1 * if width > height {height} else {width};
@@ -371,6 +389,7 @@ fn render_board(zone: Zone, board: &Board) -> BoardPoints {
     render_ports(board, &ports, scale);
     render_roads(board, &centers, scale);
     render_structures(board, &centers, scale);
+    render_robber(board.robber, &centers, scale);
 
     BoardPoints {
         centers,
@@ -465,17 +484,6 @@ fn render_hand(zone: Zone, hand: &ResHand, dvs: &DVHand) -> HandPoints {
     }
 }
 
-fn render_statics(screen_width: f32, screen_height: f32, board: &Board, hand: &ResHand, dvs: &DVHand) -> (BoardPoints, HandPoints) {
-    let board_zone = Zone::new(screen_width, screen_height, 0.0, 0.0, 1.0, 0.85);
-    let hand_zone = Zone::new(screen_width, screen_height, 0.0, 0.85, 0.6, 0.15);
-
-    clear_background(BLUE);
-    let board_points = render_board(board_zone, board);
-    let hand_points = render_hand(hand_zone, hand, dvs);
-
-    (board_points, hand_points)
-}
-
 fn get_buttons(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
     let shift = if scale < height {
         scale
@@ -552,16 +560,18 @@ fn render_die(pos: [f32; 2], size: f32, roll: Option<usize>) {
 
     let [x, y] = pos;
     let color = if roll.is_none() {WHITE} else {LIGHTGRAY};
+    let text_x = x + 0.25 * size;
+    let text_y = y + 0.75 * size;
+    let font_size = size;
 
     draw_rectangle(x, y, size, size, color);
     draw_rectangle_lines(x, y, size, size, thickness, BLACK);
 
-    if let Some(roll) = roll {
-        let text_x = x + 0.25 * size;
-        let text_y = y + 0.75 * size;
-        let font_size = size;
-        draw_text(roll.to_string().as_str(), text_x, text_y, font_size, BLACK);
-    }
+    let label = match roll {
+        Some(roll) => roll.to_string(),
+        None => "?".to_owned()
+    };
+    draw_text(label.as_str(), text_x, text_y, font_size, BLACK);
 }
 
 fn render_dice(zone: Zone, turn_state: &TurnState) -> DicePoints {
@@ -581,16 +591,6 @@ fn render_dice(zone: Zone, turn_state: &TurnState) -> DicePoints {
         dice,
         dice_size: scale
     }
-}
-
-fn render_dynamics(screen_width: f32, screen_height: f32, turn_state: &TurnState, hand: &ResHand) -> (UIPoints, DicePoints) {
-    let ui_zone = Zone::new(screen_width, screen_height, 0.6, 0.85, 0.4, 0.15);
-    let dice_zone = Zone::new(screen_width, screen_height, 0.8, 0.70, 0.2, 0.15);
-    
-    let ui_points = render_ui(ui_zone, hand, &turn_state);
-    let dice_points = render_dice(dice_zone, &turn_state);
-
-    (ui_points, dice_points)
 }
 
 fn render_discarding(hand: &ResHand) {
@@ -666,11 +666,19 @@ pub fn render_screen(board: &Board, hand: &ResHand, dvs: &DVHand, turn_state: &T
     let screen_width = screen_width();
     let screen_height = screen_height();
 
-    let (board_points, hand_points) = render_statics(screen_width, screen_height, board, hand, dvs);
-    let (ui_points, dice_points) = render_dynamics(screen_width, screen_height, turn_state, hand);
+    let board_zone = Zone::new(screen_width, screen_height, 0.0, 0.0, 1.0, 0.85);
+    let hand_zone = Zone::new(screen_width, screen_height, 0.0, 0.85, 0.6, 0.15);
+    let ui_zone = Zone::new(screen_width, screen_height, 0.6, 0.85, 0.4, 0.15);
+    let dice_zone = Zone::new(screen_width, screen_height, 0.8, 0.70, 0.2, 0.15);
+
+    clear_background(BLUE);
+    let board_points = render_board(board_zone, board);
+    let hand_points = render_hand(hand_zone, hand, dvs);
+    let ui_points = render_ui(ui_zone, hand, &turn_state);
+    let dice_points = render_dice(dice_zone, &turn_state);
 
     let BoardPoints {
         centers, corners, edges, board_point_radius
-    } = board_points;
-    render_state_dependents(screen_width, screen_height, &centers, &corners, &edges, board_point_radius, turn_state, board);
+    } = &board_points;
+    render_state_dependents(screen_width, screen_height, centers, corners, edges, *board_point_radius, turn_state, board);
 }

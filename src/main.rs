@@ -1166,7 +1166,7 @@ async fn main() {
     };
 
     loop {
-        render_screen(&board, &full_hand, &full_dv_hand, &doing);
+        render_screen(&board, &full_hand, &full_dv_hand, &pre_roll);
         macroquad::window::next_frame().await
     }
 }
