@@ -3,7 +3,7 @@ use std::ops::{Index, IndexMut};
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
 
 pub mod render;
-use render::render_screen;
+use render::{render_screen, ClickablePoints};
 
 //// Typedefs
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1124,6 +1124,31 @@ pub struct TurnState {
     offered_trades: Vec<(ResHand, ResHand)>
 }
 
+fn mouse_is_on_circle(mouse_pos: (f32, f32), center: &[f32; 2], radius: f32) -> bool {
+    (mouse_pos.0 - center[0]).powi(2) + (mouse_pos.1 - center[1]).powi(2) <= radius.powi(2)
+}
+
+fn handle_click(clickables: &ClickablePoints, board: &mut Board, state: &TurnState, hand: &ResHand) {
+    let mouse_pos = macroquad::input::mouse_position();
+    match state.action {
+        Action::Idling => (),
+        Action::Discarding(_) => (),
+        Action::MovingRobber => (),
+        Action::BuildingRoad => (),
+        Action::BuildingSettlement => {
+            let radius = 0.2 * clickables.board_scale;
+            let (idx, [x, y]) = clickables.corners.iter().copied().enumerate()
+                .filter(|(i, pos)| mouse_is_on_circle(mouse_pos, pos, radius))
+                .next().unwrap();
+            let [r, q, corner] = CORNER_COORDS[idx];
+            if board.can_place_settlement(r, q, corner, state.player) {
+                board.place_settlement(r, q, corner, state.player);
+            }
+        },
+        Action::UpgradingToCity => (),
+    }
+}
+
 #[macroquad::main("Catan")]
 async fn main() {
     let mut rng = rand::rng();
@@ -1159,14 +1184,19 @@ async fn main() {
     };
     let doing = TurnState {
         player: PlayerColor::Blue,
-        action: Action::UpgradingToCity,
+        action: Action::BuildingSettlement,
         roll: Some([3, 4]),
         played_dv: false,
         offered_trades: Vec::new()
     };
+    let state = &doing;
 
+    let mut clickables;
     loop {
-        render_screen(&board, &full_hand, &full_dv_hand, &pre_roll);
+        clickables = render_screen(&board, &full_hand, &full_dv_hand, state);
+        if macroquad::input::is_mouse_button_down(macroquad::input::MouseButton::Left) {
+            handle_click(&clickables, &mut board, state, &full_hand);
+        }
         macroquad::window::next_frame().await
     }
 }

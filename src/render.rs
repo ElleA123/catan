@@ -1,4 +1,4 @@
-use macroquad::prelude::*;
+use macroquad::{prelude::*, ui};
 
 use crate::{Action, Board, DVCard, DVHand, Hex, PlayerColor, Port, ResHand, Resource, StructureType, TurnState};
 use crate::{BOARD_COORDS, PORT_COORDS, CORNER_COORDS, EDGE_COORDS, RESOURCES, DV_CARDS, DV_CARD_HAND, ROAD_HAND, SETTLEMENT_HAND, CITY_HAND};
@@ -29,7 +29,7 @@ struct BoardPoints {
     centers: [[f32; 2]; 19],
     corners: [[f32; 2]; 54],
     edges: [[f32; 2]; 72],
-    board_point_radius: f32
+    board_scale: f32
 }
 
 struct HandPoints {
@@ -48,36 +48,34 @@ struct DicePoints {
     dice_size: f32,
 }
 
-pub struct ActionPoints {
-    centers: [[f32; 2]; 19],
-    // corners: [[[f32; 2]; 6]; 19],
-    // edges: [[[f32; 2]; 6]; 19],
-    corners: [[f32; 2]; 54],
-    edges: [[f32; 2]; 72],
-    board_point_radius: f32,
-    cards: [[f32; 2]; 10],
-    card_size: [f32; 2],
-    num_cards: usize,
-    buttons: [[f32; 2]; 5],
-    button_size: f32,
-    dice: [[f32; 2]; 2],
-    dice_size: f32,
+pub struct ClickablePoints {
+    pub centers: [[f32; 2]; 19],
+    pub corners: [[f32; 2]; 54],
+    pub edges: [[f32; 2]; 72],
+    pub board_scale: f32,
+    pub cards: [[f32; 2]; 10],
+    pub card_size: [f32; 2],
+    pub num_cards: usize,
+    pub buttons: [[f32; 2]; 5],
+    pub button_size: f32,
+    pub dice: [[f32; 2]; 2],
+    pub dice_size: f32,
 }
 
-impl ActionPoints {
-    fn static_points(board_points: BoardPoints, hand_points: HandPoints, ui_points: UIPoints, dynamic_points: DicePoints) -> ActionPoints {
-        ActionPoints {
+impl ClickablePoints {
+    fn new(board_points: BoardPoints, hand_points: HandPoints, ui_points: UIPoints, dice_points: DicePoints) -> ClickablePoints {
+        ClickablePoints {
             centers: board_points.centers,
             corners: board_points.corners,
             edges: board_points.edges,
-            board_point_radius: board_points.board_point_radius,
+            board_scale: board_points.board_scale,
             cards: hand_points.cards,
             card_size: hand_points.card_size,
             num_cards: hand_points.num_cards,
             buttons: ui_points.buttons,
             button_size: ui_points.button_size,
-            dice: dynamic_points.dice,
-            dice_size: dynamic_points.dice_size
+            dice: dice_points.dice,
+            dice_size: dice_points.dice_size
         }
     }
 }
@@ -365,16 +363,23 @@ fn render_structures(board: &Board, centers: &[[f32; 2]; 19], scale: f32) {
 }
 
 fn render_robber(hex: [usize; 2], centers: &[[f32; 2]; 19], scale: f32) {
-    let width = 0.5 * scale;
-    let height = scale;
     let thickness = scale / 20.0;
+    let [x, y] = centers[BOARD_COORDS.iter().position(|coord| *coord == hex).unwrap()];
 
-    let [mut x, mut y] = centers[BOARD_COORDS.iter().position(|coord| *coord == hex).unwrap()];
-    x -= 0.5 * width;
-    y -= 0.5 * height;
+    let w1 = 0.4 * scale;
+    let h1 = 0.8 * scale;
+    let w2 = 0.6 * scale;
+    let h2 = 0.25 * scale;
 
-    draw_rectangle(x, y, width, height, GRAY);
-    draw_rectangle_lines(x, y, width, height, thickness, BLACK);
+    let x1 = x - 0.5 * w1;
+    let y1 = y - h1 + h2;
+    let x2 = x - 0.5 * w2;
+    let y2 = y + 0.5 * h2;
+
+    draw_rectangle(x1, y1, w1, h1, GRAY);
+    draw_rectangle_lines(x1, y1, w1, h1, thickness, BLACK);
+    draw_rectangle(x2, y2, w2, h2, GRAY);
+    draw_rectangle_lines(x2, y2, w2, h2, thickness, BLACK);
 }
 
 fn render_board(zone: Zone, board: &Board) -> BoardPoints {
@@ -395,7 +400,7 @@ fn render_board(zone: Zone, board: &Board) -> BoardPoints {
         centers,
         corners,
         edges,
-        board_point_radius: 0.2 * scale
+        board_scale: scale
     }
 }
 
@@ -651,18 +656,20 @@ fn render_upgrading_to_city(corners: &[[f32; 2]; 54], board: &Board, player: Pla
     }
 }
 
-fn render_state_dependents(screen_width: f32, screen_height: f32, centers: &[[f32; 2]; 19], corners: &[[f32; 2]; 54], edges: &[[f32; 2]; 72], board_point_radius: f32, turn_state: &TurnState, board: &Board) {
+fn render_state_dependents(screen_width: f32, screen_height: f32, board_points: &BoardPoints, turn_state: &TurnState, board: &Board) {
+    let BoardPoints { centers, corners, edges, board_scale } = board_points;
+    let radius = 0.2 * board_scale;
     match turn_state.action {
         Action::Idling => (),
         Action::Discarding(hand) => render_discarding(&hand),
-        Action::MovingRobber => render_moving_robber(centers, board, board_point_radius),
-        Action::BuildingRoad => render_building_road(edges, board, turn_state.player, board_point_radius),
-        Action::BuildingSettlement => render_building_settlement(corners, board, turn_state.player, board_point_radius),
-        Action::UpgradingToCity => render_upgrading_to_city(corners, board, turn_state.player, board_point_radius)
+        Action::MovingRobber => render_moving_robber(centers, board, radius),
+        Action::BuildingRoad => render_building_road(edges, board, turn_state.player, radius),
+        Action::BuildingSettlement => render_building_settlement(corners, board, turn_state.player, radius),
+        Action::UpgradingToCity => render_upgrading_to_city(corners, board, turn_state.player, radius)
     }
 }
 
-pub fn render_screen(board: &Board, hand: &ResHand, dvs: &DVHand, turn_state: &TurnState) {
+pub fn render_screen(board: &Board, hand: &ResHand, dvs: &DVHand, turn_state: &TurnState) -> ClickablePoints {
     let screen_width = screen_width();
     let screen_height = screen_height();
 
@@ -676,9 +683,7 @@ pub fn render_screen(board: &Board, hand: &ResHand, dvs: &DVHand, turn_state: &T
     let hand_points = render_hand(hand_zone, hand, dvs);
     let ui_points = render_ui(ui_zone, hand, &turn_state);
     let dice_points = render_dice(dice_zone, &turn_state);
+    render_state_dependents(screen_width, screen_height, &board_points, turn_state, board);
 
-    let BoardPoints {
-        centers, corners, edges, board_point_radius
-    } = &board_points;
-    render_state_dependents(screen_width, screen_height, centers, corners, edges, *board_point_radius, turn_state, board);
+    ClickablePoints::new(board_points, hand_points, ui_points, dice_points)
 }
