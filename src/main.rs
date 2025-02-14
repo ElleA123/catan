@@ -330,22 +330,56 @@ const BOARD_COORDS: [[usize; 2]; 19] = [
     [4, 0], [4, 1], [4, 2]
 ];
 
-// const fn corner_coords() -> [[usize; 3]; 54] {
-//
-// }
-//
-// const fn edge_coords() -> [[usize; 3]; 72] {
-//
-// }
-//
-// const CORNER_COORDS: [[usize; 3]; 54] = corner_coords();
-// const EDGE_COORDS: [[usize; 3]; 72] = edge_coords();
-
 const PORT_COORDS: [[usize; 3]; 9] = [
     [0, 3, 0], [0, 4, 1], [1, 4, 2],
     [3, 3, 2], [4, 2, 3], [4, 1, 4],
     [3, 0, 4], [2, 0, 5], [1, 1, 0]
 ];
+
+const fn corner_coords() -> [[usize; 3]; 54] {
+    let mut corners = [[0; 3]; 54];
+    let mut idx = 0;
+
+    let mut hex = 0;
+    while hex < BOARD_COORDS.len() {
+        let [r, q] = BOARD_COORDS[hex];
+        let mut corner = 0;
+        while corner < 6 {
+            let [r_, q_, corner_] = reduce_corner(r, q, corner);
+            if r == r_ && q == q_ && corner == corner_ {
+                corners[idx] = [r, q, corner];
+                idx += 1;
+            }
+            corner += 1;
+        } 
+        hex += 1;
+    }
+    corners
+}
+
+const fn edge_coords() -> [[usize; 3]; 72] {
+    let mut edges = [[0; 3]; 72];
+    let mut idx = 0;
+
+    let mut hex = 0;
+    while hex < BOARD_COORDS.len() {
+        let [r, q] = BOARD_COORDS[hex];
+        let mut edge = 0;
+        while edge < 6 {
+            let [r_, q_, edge_] = reduce_edge(r, q, edge);
+            if r == r_ && q == q_ && edge == edge_ {
+                edges[idx] = [r, q, edge];
+                idx += 1;
+            }
+            edge += 1;
+        } 
+        hex += 1;
+    }
+    edges
+}
+
+const CORNER_COORDS: [[usize; 3]; 54] = corner_coords();
+const EDGE_COORDS: [[usize; 3]; 72] = edge_coords();
 
 const BOARD_RESOURCES: [Resource; 18] = [
     Resource::Wood, Resource::Wood, Resource::Wood, Resource::Wood,
@@ -456,12 +490,15 @@ impl Board {
 
     fn can_place_road(&self, r: usize, q: usize, edge: usize, color: PlayerColor) -> bool {
         self.roads[r][q][edge].is_none()
-        && edge_edge_neighbors(r, q, edge).any(|[r_, q_, e_]| self.road_is_color(r_, q_, e_, color))
+        && (
+            edge_edge_neighbors(r, q, edge).any(|[r_, q_, e_]| self.road_is_color(r_, q_, e_, color))
+            || edge_corner_neighbors(r, q, edge).any(|[r_, q_, c_]| self.structure_is_color(r_, q_, c_, color))
+        )
     }
 
-    fn can_place_setup_road(&self, r: usize, q: usize, edge: usize, color: PlayerColor) -> bool {
+    fn can_place_setup_road(&self, r: usize, q: usize, edge: usize, settlement_coord: [usize; 3], color: PlayerColor) -> bool {
         self.roads[r][q][edge].is_none()
-        && edge_corner_neighbors(r, q, edge).any(|[r_, q_, c_]| self.structure_is_color(r_, q_, c_, color))
+        && edge_corner_neighbors(r, q, edge).any(|coord| coord == settlement_coord)
     }
 
     fn place_road(&mut self, r: usize, q: usize, edge: usize, color: PlayerColor) {
@@ -1072,55 +1109,64 @@ fn get_roll<R: Rng + ?Sized>(rng: &mut R) -> usize {
 
 enum Action {
     Idling,
-    Discarding,
+    Discarding(ResHand),
     MovingRobber,
     BuildingRoad,
     BuildingSettlement,
     UpgradingToCity,
-    OfferingTrade,
 }
 
 pub struct TurnState {
+    player: PlayerColor,
     action: Action,
     roll: Option<[usize; 2]>,
     played_dv: bool,
-    offered_trade: Option<(ResHand, ResHand)>
+    offered_trades: Vec<(ResHand, ResHand)>
 }
 
-// #[macroquad::main("Catan")]
-// async fn main() {
-//     let mut rng = rand::rng();
-//     let num_players = 4;
-//     let mut board = Board::new(num_players, &mut rng);
+#[macroquad::main("Catan")]
+async fn main() {
+    let mut rng = rand::rng();
+    let num_players = 4;
+    let mut board = Board::new(num_players, &mut rng);
 
-//     board.place_settlement(2, 2, 3, PlayerColor::Orange);
-//     board.place_settlement(2, 2, 0, PlayerColor::Blue);
-//     board.upgrade_to_city(2, 2, 0);
-//     board.place_road(2, 2, 0, PlayerColor::Blue);
+    board.place_settlement(2, 2, 3, PlayerColor::Orange);
+    board.place_settlement(2, 2, 0, PlayerColor::Blue);
+    // board.upgrade_to_city(2, 2, 0);
+    board.place_road(2, 2, 0, PlayerColor::Blue);
+    board.place_road(2, 2, 5, PlayerColor::Blue);
+    board.place_road(1, 2, 4, PlayerColor::Blue);
+    board.place_road(2, 1, 3, PlayerColor::Blue);
 
-//     let empty_hand = ResHand::new();
-//     let full_hand = ResHand([1, 1, 2, 0, 3]);
-//     let full_dv_hand = DVHand([1, 0, 0, 1, 1]);
 
-//     let pre_roll = TurnState {
-//         action: Action::Idling,
-//         roll: None,
-//         played_dv: false,
-//         offered_trade: None
-//     };
-//     let post_roll = TurnState {
-//         action: Action::Idling,
-//         roll: Some([3, 4]),
-//         played_dv: false,
-//         offered_trade: None
-//     };
+    let empty_hand = ResHand::new();
+    let full_hand = ResHand([1, 1, 2, 0, 3]);
+    let full_dv_hand = DVHand([1, 0, 0, 1, 1]);
 
-//     loop {
-//         render_screen(&board, &full_hand, &full_dv_hand, &post_roll);
-//         macroquad::window::next_frame().await
-//     }
-// }
+    let pre_roll = TurnState {
+        player: PlayerColor::Red,
+        action: Action::Idling,
+        roll: None,
+        played_dv: false,
+        offered_trades: Vec::new()
+    };
+    let post_roll = TurnState {
+        player: PlayerColor::Blue,
+        action: Action::Idling,
+        roll: Some([3, 4]),
+        played_dv: false,
+        offered_trades: Vec::new()
+    };
+    let doing = TurnState {
+        player: PlayerColor::Blue,
+        action: Action::UpgradingToCity,
+        roll: Some([3, 4]),
+        played_dv: false,
+        offered_trades: Vec::new()
+    };
 
-fn main() {
-    println!("{:?}", reduce_edge(2, 0, 0));
+    loop {
+        render_screen(&board, &full_hand, &full_dv_hand, &doing);
+        macroquad::window::next_frame().await
+    }
 }

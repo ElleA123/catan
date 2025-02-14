@@ -1,8 +1,7 @@
 use macroquad::prelude::*;
 
-use crate::{Action, Board, DVCard, DVHand, Hex, Port, ResHand, Resource, StructureType, TurnState};
-use crate::{BOARD_COORDS, PORT_COORDS, RESOURCES, DV_CARDS, DV_CARD_HAND, ROAD_HAND, SETTLEMENT_HAND, CITY_HAND};
-use crate::{get_dup_corners, get_dup_edges};
+use crate::{Action, Board, DVCard, DVHand, Hex, PlayerColor, Port, ResHand, Resource, StructureType, TurnState};
+use crate::{BOARD_COORDS, PORT_COORDS, CORNER_COORDS, EDGE_COORDS, RESOURCES, DV_CARDS, DV_CARD_HAND, ROAD_HAND, SETTLEMENT_HAND, CITY_HAND};
 
 const SQRT_3: f32 = 1.732050807568877293527446341505872367_f32;
 
@@ -28,8 +27,10 @@ impl Zone {
 
 struct BoardPoints {
     centers: [[f32; 2]; 19],
-    corners: [[[f32; 2]; 6]; 19],
-    edges: [[[f32; 2]; 6]; 19],
+    // corners: [[[f32; 2]; 6]; 19],
+    // edges: [[[f32; 2]; 6]; 19],
+    corners: [[f32; 2]; 54],
+    edges: [[f32; 2]; 72],
     board_point_radius: f32
 }
 
@@ -51,8 +52,10 @@ struct DicePoints {
 
 pub struct ActionPoints {
     centers: [[f32; 2]; 19],
-    corners: [[[f32; 2]; 6]; 19],
-    edges: [[[f32; 2]; 6]; 19],
+    // corners: [[[f32; 2]; 6]; 19],
+    // edges: [[[f32; 2]; 6]; 19],
+    corners: [[f32; 2]; 54],
+    edges: [[f32; 2]; 72],
     board_point_radius: f32,
     cards: [[f32; 2]; 10],
     card_size: [f32; 2],
@@ -99,65 +102,89 @@ fn get_centers(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]
     centers
 }
 
-// fn get_corners(centers: &[[f32; 2]; 19], scale: f32) -> [[f32; 2]; 54] {
-//     let mut seen_corners = Vec::with_capacity(114);
-//     let mut corners = [[0.0; 2]; 54];
-//     let mut corner_idx = 0;
-//     for center_idx in 0..BOARD_COORDS.len() {
-//         let [r, q] = BOARD_COORDS[center_idx];
+fn get_corner(center: [f32; 2], corner: usize, scale: f32) -> [f32; 2] {
+    [center[0] + match corner {
+        0 => 0.0,
+        1 => 0.5 * SQRT_3 * scale,
+        2 => 0.5 * SQRT_3 * scale,
+        3 => 0.0,
+        4 => -0.5 * SQRT_3 * scale,
+        5 => -0.5 * SQRT_3 * scale,
+        _ => panic!("render::render_structure(): invalid corner")
+    },
+    center[1] + match corner {
+        0 => -scale,
+        1 => -0.5 * scale,
+        2 => 0.5 * scale,
+        3 => scale,
+        4 => 0.5 * scale,
+        5 => -0.5 * scale,
+        _ => panic!("render::render_structure(): invalid corner")
+    }]
+}
+
+fn get_corners(centers: &[[f32; 2]; 19], scale: f32) -> [[f32; 2]; 54] {
+    let mut corners = [[0.0; 2]; 54];
+    for idx in 0..CORNER_COORDS.len() {
+        let [r, q, c] = CORNER_COORDS[idx];
+        let hex = centers[BOARD_COORDS.iter().position(|c| *c == [r, q]).unwrap()]; // prob slow
+        corners[idx] = get_corner(hex, c, scale);
+    }
+    corners
+}
+
+// fn get_corners(centers: &[[f32; 2]; 19], scale: f32) -> [[[f32; 2]; 6]; 19] {
+//     let mut corners = [[[0.0; 2]; 6]; 19];
+//     for center in 0..BOARD_COORDS.len() {
 //         for n in 0..6 {
-//             if !seen_corners.contains(&[r, q, n]) {
-//                 corners[corner_idx] = get_corner_coords(centers[center_idx], n, scale);
-//                 seen_corners.extend(get_dup_corners(r, q, n));
-//                 corner_idx += 1;
-//             }
+//             corners[center][n] = get_corner(centers[center], n, scale);
 //         }
 //     }
 //     corners
 // }
 
-fn get_corners(centers: &[[f32; 2]; 19], scale: f32) -> [[[f32; 2]; 6]; 19] {
-    let mut corners = [[[0.0; 2]; 6]; 19];
-    for center in 0..BOARD_COORDS.len() {
-        for n in 0..6 {
-            corners[center][n] = get_corner_coords(centers[center], n, scale);
-        }
-    }
-    corners
+fn get_edge(center: [f32; 2], edge: usize, scale: f32) -> [f32; 2] {
+    [center[0] + match edge {
+        0 => -0.25 * SQRT_3 * scale,
+        1 => 0.25 * SQRT_3 * scale,
+        2 => 0.5 * SQRT_3 * scale,
+        3 => 0.25 * SQRT_3 * scale,
+        4 => -0.25 * SQRT_3 * scale,
+        5 => -0.5 * SQRT_3 * scale,
+        _ => panic!("render::render_structure(): invalid corner")
+    },
+    center[1] + match edge {
+        0 => -0.75 * scale,
+        1 => -0.75 * scale,
+        2 => 0.0,
+        3 => 0.75 * scale,
+        4 => 0.75 * scale,
+        5 => 0.0,
+        _ => panic!("render::render_structure(): invalid corner")
+    }]
 }
 
+fn get_edges(centers: &[[f32; 2]; 19], scale: f32) -> [[f32; 2]; 72] {
+    let mut edges = [[0.0; 2]; 72];
+    for idx in 0..EDGE_COORDS.len() {
+        let [r, q, e] = EDGE_COORDS[idx];
+        let hex = centers[BOARD_COORDS.iter().position(|c| *c == [r, q]).unwrap()]; // prob slow
+        edges[idx] = get_edge(hex, e, scale);
+    }
+    edges
+}
 
-// fn get_edges(centers: &[[f32; 2]; 19], scale: f32) -> [[f32; 2]; 72] {
-//     let mut seen_edges = Vec::with_capacity(114);
-//     let mut edges = [[0.0; 2]; 72];
-//     let mut edge_idx = 0;
-//     for center_idx in 0..BOARD_COORDS.len() {
-//         let [r, q] = BOARD_COORDS[center_idx];
+// fn get_edges(corners: &[[[f32; 2]; 6]; 19]) -> [[[f32; 2]; 6]; 19] {
+//     let mut edges = [[[0.0; 2]; 6]; 19];
+//     for center in 0..BOARD_COORDS.len() {
 //         for n in 0..6 {
-//             if !seen_edges.contains(&[r, q, n]) {
-//                 let [x1, y1] = get_corner_coords(centers[center_idx], n, scale);
-//                 let [x2, y2] = get_corner_coords(centers[center_idx], (n + 5) % 6, scale);
-//                 edges[edge_idx] = [(x1 + x2) / 2.0, (y1 + y2) / 2.0];
-
-//                 seen_edges.extend(get_dup_edges(r, q, n));
-//                 edge_idx += 1;
-//             }
+//             let [x1, y1] = corners[center][n];
+//             let [x2, y2] = corners[center][(n + 5) % 6];
+//             edges[center][n] = [(x1 + y2) / 2.0, (y1 + y2) / 2.0];
 //         }
 //     }
 //     edges
 // }
-
-fn get_edges(corners: &[[[f32; 2]; 6]; 19]) -> [[[f32; 2]; 6]; 19] {
-    let mut edges = [[[0.0; 2]; 6]; 19];
-    for center in 0..BOARD_COORDS.len() {
-        for n in 0..6 {
-            let [x1, y1] = corners[center][n];
-            let [x2, y2] = corners[center][(n + 5) % 6];
-            edges[center][n] = [(x1 + y2) / 2.0, (y1 + y2) / 2.0];
-        }
-    }
-    edges
-}
 
 fn get_ports(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 3]; 9] {
     let stretch_factor = 1.5;
@@ -201,7 +228,7 @@ fn render_hex(center: [f32; 2], hex: Hex, scale: f32, ) {
     let hex_thickness = scale / 20.0;
     let circle_radius = scale / 2.0;
     let circle_thickness = scale / 30.0;
-    let num_offset = scale / 4.0;
+    let num_offset = 0.24 * scale;
     let font_size = scale;
 
     let [x, y] = center;
@@ -255,35 +282,12 @@ fn render_ports(board: &Board, ports: &[[f32; 3]; 9], scale: f32) {
     }
 }
 
-fn get_corner_coords(center: [f32; 2], corner: usize, scale: f32) -> [f32; 2] {
-    [
-        center[0] + match corner {
-            0 => 0.0,
-            1 => 0.5 * SQRT_3 * scale,
-            2 => 0.5 * SQRT_3 * scale,
-            3 => 0.0,
-            4 => -0.5 * SQRT_3 * scale,
-            5 => -0.5 * SQRT_3 * scale,
-            _ => panic!("render::render_structure(): invalid corner")
-        },
-        center[1] + match corner {
-            0 => -scale,
-            1 => -0.5 * scale,
-            2 => 0.5 * scale,
-            3 => scale,
-            4 => 0.5 * scale,
-            5 => -0.5 * scale,
-            _ => panic!("render::render_structure(): invalid corner")
-        }
-    ]
-}
-
 fn render_settlement(center: [f32; 2], corner: usize, color: Color, scale: f32) {
     let base = scale / 2.5;
     let height = scale / 3.0;
     let thickness = scale / 20.0;
 
-    let [mut x, mut y] = get_corner_coords(center, corner, scale);
+    let [mut x, mut y] = get_corner(center, corner, scale);
     x -= 0.5 * base;
     y -= 0.5 * height;
 
@@ -302,7 +306,7 @@ fn render_city(center: [f32; 2], corner: usize, color: Color, scale: f32) {
     let height = scale / 4.0;
     let thickness = scale / 20.0;
 
-    let [mut x, mut y] = get_corner_coords(center, corner, scale);
+    let [mut x, mut y] = get_corner(center, corner, scale);
     x -= 0.5 * base;
     y -= 0.5 * height;
 
@@ -323,8 +327,8 @@ fn render_city(center: [f32; 2], corner: usize, color: Color, scale: f32) {
 fn render_road(center: [f32; 2], edge: usize, color: Color, scale: f32) {
     let thickness = scale / 15.0;
 
-    let [x1, y1] = get_corner_coords(center, edge, scale);
-    let [x2, y2] = get_corner_coords(center, (edge + 5) % 6, scale);
+    let [x1, y1] = get_corner(center, edge, scale);
+    let [x2, y2] = get_corner(center, (edge + 5) % 6, scale);
 
     draw_line(x1, y1, x2, y2, thickness, color);
 }
@@ -357,10 +361,10 @@ fn render_structures(board: &Board, centers: &[[f32; 2]; 19], scale: f32) {
 
 fn render_board(zone: Zone, board: &Board) -> BoardPoints {
     let Zone { x, y, width, height } = zone;
-    let scale = 0.09 * if width > height {height} else {width};
+    let scale = 0.1 * if width > height {height} else {width};
     let centers = get_centers(x, y, width, height, scale);
     let corners = get_corners(&centers, scale);
-    let edges = get_edges(&corners);
+    let edges = get_edges(&centers, scale);
     let ports = get_ports(x, y, width, height, scale);
 
     render_hexes(board, &centers, scale);
@@ -372,7 +376,7 @@ fn render_board(zone: Zone, board: &Board) -> BoardPoints {
         centers,
         corners,
         edges,
-        board_point_radius: scale / 10.0
+        board_point_radius: 0.2 * scale
     }
 }
 
@@ -461,6 +465,17 @@ fn render_hand(zone: Zone, hand: &ResHand, dvs: &DVHand) -> HandPoints {
     }
 }
 
+fn render_statics(screen_width: f32, screen_height: f32, board: &Board, hand: &ResHand, dvs: &DVHand) -> (BoardPoints, HandPoints) {
+    let board_zone = Zone::new(screen_width, screen_height, 0.0, 0.0, 1.0, 0.85);
+    let hand_zone = Zone::new(screen_width, screen_height, 0.0, 0.85, 0.6, 0.15);
+
+    clear_background(BLUE);
+    let board_points = render_board(board_zone, board);
+    let hand_points = render_hand(hand_zone, hand, dvs);
+
+    (board_points, hand_points)
+}
+
 fn get_buttons(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
     let shift = if scale < height {
         scale
@@ -490,17 +505,6 @@ fn render_button(pos: [f32; 2], size: f32, can_click: bool, label: &str) {
     draw_rectangle(x, y, size, size, color);
     draw_rectangle_lines(x, y, size, size, thickness, BLACK);
     draw_text(label, text_x, text_y, font_size, BLACK);
-}
-
-fn render_statics(screen_width: f32, screen_height: f32, board: &Board, hand: &ResHand, dvs: &DVHand) -> (BoardPoints, HandPoints) {
-    let board_zone = Zone::new(screen_width, screen_height, 0.0, 0.0, 1.0, 0.85);
-    let hand_zone = Zone::new(screen_width, screen_height, 0.0, 0.85, 0.6, 0.15);
-
-    clear_background(BLUE);
-    let board_points = render_board(board_zone, board);
-    let hand_points = render_hand(hand_zone, hand, dvs);
-
-    (board_points, hand_points)
 }
 
 fn render_ui(zone: Zone, hand: &ResHand, turn_state: &TurnState) -> UIPoints {
@@ -589,16 +593,84 @@ fn render_dynamics(screen_width: f32, screen_height: f32, turn_state: &TurnState
     (ui_points, dice_points)
 }
 
-// fn render_state_dependents(screen_width: f32, screen_height: f32, turn_state: &TurnState, board: &Board) {
-//     match turn_state.action {
-//         Action::Idling => 
-//     }
-// }
+fn render_discarding(hand: &ResHand) {
+
+}
+
+fn render_clickable(pos: [f32; 2], radius: f32, alpha: u8) {
+    let thickness = radius / 5.0;
+    let color = Color::from_rgba(192, 192, 192, alpha);
+    draw_circle(pos[0], pos[1], radius, color);
+    draw_circle_lines(pos[0], pos[1], radius, thickness, DARKGRAY);
+}
+
+fn render_moving_robber(centers: &[[f32; 2]; 19], board: &Board, radius: f32) {
+    let radius = 2.3 * radius;
+    let alpha = 0;
+    for (_, pos) in centers.iter().copied().enumerate()
+        .filter(|(idx, _)| { BOARD_COORDS[*idx] != board.robber }
+    ) {
+        render_clickable(pos, radius, alpha);
+    }
+}
+
+fn render_building_road(edges: &[[f32; 2]; 72], board: &Board, player: PlayerColor, radius: f32) {
+    let alpha = 192;
+    for (_, pos) in edges.iter().copied().enumerate()
+        .filter(|(idx, _)| {
+            let [r, q, e] = EDGE_COORDS[*idx];
+            board.can_place_road(r, q, e, player)
+        }
+    ) {
+        render_clickable(pos, radius, alpha);
+    }
+}
+
+fn render_building_settlement(corners: &[[f32; 2]; 54], board: &Board, player: PlayerColor, radius: f32) {
+    let alpha = 192;
+    for (_, pos) in corners.iter().copied().enumerate()
+        .filter(|(idx, _)| {
+            let [r, q, c] = CORNER_COORDS[*idx];
+            board.can_place_settlement(r, q, c, player)
+        }
+    ) {
+        render_clickable(pos, radius, alpha);
+    }
+}
+
+fn render_upgrading_to_city(corners: &[[f32; 2]; 54], board: &Board, player: PlayerColor, radius: f32) {
+    let radius = 0.3 * radius;
+    let alpha = 128;
+    for (_, [x, y]) in corners.iter().copied().enumerate()
+        .filter(|(idx, _)| {
+            let [r, q, c] = CORNER_COORDS[*idx];
+            board.structure_is_color(r, q, c, player)
+        }
+    ) {
+        draw_circle(x, y, radius, DARKGRAY);
+    }
+}
+
+fn render_state_dependents(screen_width: f32, screen_height: f32, centers: &[[f32; 2]; 19], corners: &[[f32; 2]; 54], edges: &[[f32; 2]; 72], board_point_radius: f32, turn_state: &TurnState, board: &Board) {
+    match turn_state.action {
+        Action::Idling => (),
+        Action::Discarding(hand) => render_discarding(&hand),
+        Action::MovingRobber => render_moving_robber(centers, board, board_point_radius),
+        Action::BuildingRoad => render_building_road(edges, board, turn_state.player, board_point_radius),
+        Action::BuildingSettlement => render_building_settlement(corners, board, turn_state.player, board_point_radius),
+        Action::UpgradingToCity => render_upgrading_to_city(corners, board, turn_state.player, board_point_radius)
+    }
+}
 
 pub fn render_screen(board: &Board, hand: &ResHand, dvs: &DVHand, turn_state: &TurnState) {
     let screen_width = screen_width();
     let screen_height = screen_height();
 
-    render_statics(screen_width, screen_height, board, hand, dvs);
-    render_dynamics(screen_width, screen_height, turn_state, hand);
+    let (board_points, hand_points) = render_statics(screen_width, screen_height, board, hand, dvs);
+    let (ui_points, dice_points) = render_dynamics(screen_width, screen_height, turn_state, hand);
+
+    let BoardPoints {
+        centers, corners, edges, board_point_radius
+    } = board_points;
+    render_state_dependents(screen_width, screen_height, &centers, &corners, &edges, board_point_radius, turn_state, board);
 }
