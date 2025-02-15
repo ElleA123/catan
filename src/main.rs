@@ -1,4 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
 use std::ops::{Index, IndexMut};
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
 
@@ -146,25 +145,6 @@ impl ResHand {
         let mut hand = ResHand::new();
         hand[card] = 1;
         hand
-    }
-
-    fn from_input() -> ResHand {
-        // TODO
-        let mut hand = ResHand::new();
-        hand
-    }
-
-    fn sized_from_input(size: usize) -> ResHand {
-        // TODO
-        return ResHand::new();
-        let mut hand;
-        loop {
-            hand = ResHand::new();
-            if hand.size() == size {
-                return hand;
-            }
-            println!("wrong size! ({})", size);
-        }
     }
 
     fn clear(&mut self) {
@@ -476,6 +456,13 @@ impl Board {
         }
     }
 
+    fn structure_isnt_color(&self, r: usize, q: usize, corner: usize, color: PlayerColor) -> bool {
+        match self.structures[r][q][corner] {
+            Some(c) => c.color != color,
+            None => false
+        }
+    }
+
     fn get_colors_on_hex(&self, r: usize, q: usize) -> Vec<PlayerColor> {
         let mut colors = Vec::with_capacity(self.num_players);
         for corner in 0..6 {
@@ -491,14 +478,17 @@ impl Board {
     fn can_place_road(&self, r: usize, q: usize, edge: usize, color: PlayerColor) -> bool {
         self.roads[r][q][edge].is_none()
         && (
-            edge_edge_neighbors(r, q, edge).any(|[r_, q_, e_]| self.road_is_color(r_, q_, e_, color))
-            || edge_corner_neighbors(r, q, edge).any(|[r_, q_, c_]| self.structure_is_color(r_, q_, c_, color))
+            edge_corner_neighbors(r, q, edge).into_iter().any(|[r_, q_, c_]| self.structure_is_color(r_, q_, c_, color))
+            || edge_edge_neighbors(r, q, edge).any(|[r_, q_, e_]| {
+                let [r_int, q_int, c_int] = intersecting_corner([r, q, edge], [r_, q_, e_]).unwrap();
+                self.road_is_color(r_, q_, e_, color) && !self.structure_isnt_color(r_int, q_int, c_int, color)
+            })
         )
     }
 
     fn can_place_setup_road(&self, r: usize, q: usize, edge: usize, settlement_coord: [usize; 3], color: PlayerColor) -> bool {
         self.roads[r][q][edge].is_none()
-        && edge_corner_neighbors(r, q, edge).any(|coord| coord == settlement_coord)
+        && edge_corner_neighbors(r, q, edge).into_iter().any(|coord| coord == settlement_coord)
     }
 
     fn place_road(&mut self, r: usize, q: usize, edge: usize, color: PlayerColor) {
@@ -529,6 +519,11 @@ impl Board {
                 color
             });
         }
+    }
+
+    fn can_upgrade_to_city(&self, r: usize, q: usize, corner: usize, color: PlayerColor) -> bool {
+        self.structure_is_color(r, q, corner, color)
+        && self.structures[r][q][corner].unwrap().structure_type == StructureType::Settlement
     }
 
     fn upgrade_to_city(&mut self, r: usize, q: usize, corner: usize) {
@@ -568,326 +563,6 @@ impl Board {
     }
 }
 
-struct Player {
-    color: PlayerColor,
-    is_human: bool,
-    board: Rc<RefCell<Board>>,
-    vps: usize,
-    hand: ResHand,
-    dvs: DVHand,
-    new_dvs: DVHand,
-    knights: usize,
-    road_len: usize,
-    road_pool: usize,
-    settlement_pool: usize,
-    city_pool: usize,
-}
-
-impl Player {
-    fn new(color: PlayerColor, is_human: bool, board: Rc<RefCell<Board>>) -> Player {
-        Player {
-            color,
-            is_human,
-            board,
-            vps: 0,
-            hand: ResHand::new(),
-            dvs: DVHand::new(),
-            new_dvs: DVHand::new(),
-            knights: 0,
-            road_len: 0,
-            road_pool: 15,
-            settlement_pool: 5,
-            city_pool: 4
-        }
-    }
-
-    fn get_resources(&mut self, got: ResHand) {
-        self.hand.add(got);
-        self.board.borrow_mut().bank.disc_max(got);
-    }
-
-    fn discard_resources(&mut self, lost: ResHand) -> bool {
-        if self.hand.can_disc(lost) {
-            self.hand.discard(lost);
-            self.board.borrow_mut().bank.add(lost);
-            true
-        } else {
-            false
-        }
-    }
-
-    fn build_road(&mut self, r: usize, q: usize, edge: usize) -> bool {
-        let can_place_road = self.board.borrow().can_place_road(r, q, edge, self.color);
-        if can_place_road && self.hand.can_disc(ROAD_HAND) && self.road_pool > 0 {
-            self.discard_resources(ROAD_HAND);
-            self.board.borrow_mut().place_road(r, q, edge, self.color);
-            self.road_pool -= 1;
-            return true;
-        }
-        return false;
-    }
-
-    // fn input_and_build_road(&mut self) {
-    //     loop {
-    //         let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
-    //         let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
-    //         let edge: usize = get_specific_input("edge: ", "it's a usize 0-6 silly! edge: ", |n| n < 6);
-    //         if self.build_road(r, q, edge) {
-    //             break;
-    //         } else {
-    //             println!("You can't build there stupid! Let's try again...");
-    //         }
-    //     }
-    // }
-
-    fn build_settlement(&mut self, r: usize, q: usize, corner: usize) -> bool {
-        println!("works on board: {}", self.board.borrow().can_place_settlement(r, q, corner, self.color));
-        println!("has cards: {}", self.hand.can_disc(SETTLEMENT_HAND));
-        println!("settlements available: {}", self.settlement_pool > 0);
-        let can_place_settlement = self.board.borrow().can_place_settlement(r, q, corner, self.color);
-        if can_place_settlement && self.hand.can_disc(SETTLEMENT_HAND) && self.settlement_pool > 0 {
-            self.discard_resources(SETTLEMENT_HAND);
-            self.board.borrow_mut().place_settlement(r, q, corner, self.color);
-            self.settlement_pool -= 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    // fn input_and_build_settlement(&mut self) {
-    //     loop {
-    //         let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
-    //         let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
-    //         let corner: usize = get_specific_input("corner: ", "it's a usize 0-6 silly! corner: ", |n| n < 6);
-    //         if self.build_settlement(r, q, corner) {
-    //             break;
-    //         } else {
-    //             println!("You can't build there stupid! Let's try again...");
-    //         }
-    //     }
-    // }
-
-    fn upgrade_to_city(&mut self, r: usize, q: usize, corner: usize) -> bool {
-        let Some(s) = self.board.borrow().structures[r][q][corner] else { return false; };
-        if s.structure_type == StructureType::Settlement && s.color == self.color && self.hand.can_disc(CITY_HAND) {
-            self.discard_resources(CITY_HAND);
-            self.board.borrow_mut().upgrade_to_city(r, q, corner);
-            self.city_pool -= 1;
-            self.settlement_pool += 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    // fn input_and_upgrade_to_city(&mut self) {
-    //     loop {
-    //         let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
-    //         let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
-    //         let corner: usize = get_specific_input("corner: ", "it's a usize 0-6 silly! corner: ", |n| n < 6);
-    //         if self.upgrade_to_city(r, q, corner) {
-    //             break;
-    //         } else {
-    //             println!("You can't upgrade there stupid! Let's try again...");
-    //         }
-    //     }
-    // }
-
-    fn buy_dv_card(&mut self) -> bool {
-        let can_draw = self.board.borrow().dv_bank.len() > 0;
-        if self.hand.can_disc(DV_CARD_HAND) && can_draw {
-            self.discard_resources(DV_CARD_HAND);
-            self.new_dvs.add_card(self.board.borrow_mut().draw_dv_card());
-            true
-        } else {
-            false
-        }
-    }
-
-    fn try_buy_dv_card(&mut self) {
-        if self.buy_dv_card() {
-            println!("Done!");
-        } else {
-            println!("You have not the materials!");
-        }
-    }
-
-    fn play_dv_card(&mut self, card: DVCard) -> bool {
-        if self.dvs[card] > 0 {
-            self.dvs[card] -= 1;
-            match card {
-                DVCard::Knight => {}, // Knight
-                DVCard::RoadBuilding => {}, // RB
-                DVCard::YearOfPlenty => {}, // YearOfPlenty
-                DVCard::Monopoly => {}, // Monopoly
-                DVCard::VictoryPoint => return false
-            }
-            return true;
-        }
-        return false;
-    }
-
-    // fn input_and_play_dv_card(&mut self) -> DVCard {
-    //     loop {
-    //         let id: usize = get_specific_input("DV card:", "usize < 4 (can't play VPS)", |n| n < 4);
-    //         let card = DV_CARDS[id];
-    //         if self.play_dv_card(card) {
-    //             return card;
-    //         } else {
-    //             println!("You don't even have that card bruh");
-    //         }
-    //     }
-    // }
-
-    fn offer_trade(&self) -> (ResHand, ResHand) {
-        let mut give;
-        loop {
-            give = ResHand::from_input();
-            if self.hand.can_disc(give) {
-                break;
-            }
-        }
-        let get = ResHand::from_input();
-        (give, get)
-    }
-
-    fn handle_robber(&mut self) {
-        if self.hand.size() > 7 {
-            let amt_discarded = self.hand.size() / 2;
-            let mut discarded = ResHand::sized_from_input(amt_discarded);
-            while !(self.hand.can_disc(discarded)) {
-                discarded = ResHand::sized_from_input(amt_discarded);
-            }
-            self.discard_resources(discarded);
-        }
-    }
-
-    // fn move_robber(&self) -> Option<usize> {
-    //     let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
-    //     let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
-    //     self.board.borrow_mut().robber = [r, q];
-    //     let colors = self.board.borrow().get_colors_on_hex(r, q);
-    //     if colors.len() > 0 {
-    //         println!("Steal from one of: {}", colors.iter().map(|c| format!("{:?}", c)).collect::<Vec<String>>().join(","));
-    //         Some(colors[0] as usize) // TODO - add choice
-    //     } else {
-    //         None
-    //     }
-    // }
-
-    fn respond_to_trade(&self, give: ResHand, get: ResHand) -> bool {
-        return true; // TODO - add choice
-    }
-
-    fn respond_to_trade_responses(&self, responses: Vec<bool>) -> Option<usize> {
-        for (id, res) in responses.into_iter().enumerate() {
-            if res {
-                // TODO - add choice
-                return Some(id);
-            }
-        }
-        return None;
-    } 
-
-    // fn take_setup_turn(&mut self) {
-    //     if self.is_human {
-    //         // TODO: do better
-    //         loop {
-    //             let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
-    //             let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
-    //             let corner: usize = get_specific_input("corner: ", "it's a usize 0-6 silly! corner: ", |n| n < 6);
-    //             if self.board.borrow().can_place_setup_settlement(r, q, corner) {
-    //                 println!("Placing settlement at ({}, {}, {})", r, q, corner);
-    //                 let conf = get_input("Type 'c' to confirm");
-    //                 if conf == "c" {
-    //                     self.board.borrow_mut().place_settlement(r, q, corner, self.color);
-    //                     break;
-    //                 }
-    //             } else {
-    //                 println!("You can't build there stupid! Let's try again...");
-    //             }
-    //         }
-    //         loop {
-    //             let r: usize = get_specific_input("r:", "it's a usize silly! r:", |n| n < 5);
-    //             let q: usize = get_specific_input("q:", "it's a usize on the board, silly! q:", |n| is_on_board(r, n));
-    //             let edge: usize = get_specific_input("edge: ", "it's a usize 0-6 silly! edge: ", |n| n < 6);
-    //             if self.board.borrow().can_place_setup_road(r, q, edge, self.color) {
-    //                 println!("Placing road at ({}, {}, {})", r, q, edge);
-    //                 let conf = get_input("Type 'c' to confirm");
-    //                 if conf == "c" {
-    //                     self.board.borrow_mut().place_road(r, q, edge, self.color);
-    //                     break;
-    //                 }
-    //             } else {
-    //                 println!("You can't build there stupid! Let's try again...");
-    //             }
-    //         }
-    //     }
-    // }
-
-    // fn take_preroll_turn(&mut self, has_played_dv: bool) -> TurnStatus {
-    //     loop {
-    //         let action: usize = get_specific_input("Action to take:", "usize < 2", |n| n < 2);
-    //         match action {
-    //             0 => return TurnStatus::Rolling, // Roll
-    //             1 => { // Play DV
-    //                 if !has_played_dv {
-    //                     let card = self.input_and_play_dv_card();
-    //                     if self.vps >= 10 {
-    //                         return TurnStatus::Win;
-    //                     }
-    //                     return TurnStatus::PlayedDV(card);
-    //                 } else {
-    //                     println!("You've already played a DV this turn!");
-    //                 }
-    //             },
-    //             _ => panic!("Player::take_preroll_turn(): invalid action")
-    //         }
-    //     }
-    // }
-
-    // fn take_postroll_turn(&mut self, has_played_dv: bool) -> TurnStatus {
-    //     loop {
-    //         let action: usize = get_specific_input("Action to take:", "usize < 7", |n| n < 7);
-    //         match action {
-    //             0 => self.input_and_build_road(), // Road
-    //             1 => self.input_and_build_settlement(), // Settlement
-    //             2 => self.input_and_upgrade_to_city(), // City
-    //             3 => self.try_buy_dv_card(), // Buy DV card
-    //             4 => { // Play DV card
-    //                 if !has_played_dv {
-    //                     return TurnStatus::PlayedDV(self.input_and_play_dv_card());
-    //                 } else {
-    //                     println!("You've already played a DV this turn!");
-    //                 }
-    //             },
-    //             5 => { // Offer trade
-    //                 let (give, get) = self.offer_trade();
-    //                 return TurnStatus::TradeOffer(give, get);
-    //             },
-    //             6 => { // Finish turn
-    //                 self.dvs.add(self.new_dvs);
-    //                 self.new_dvs.clear();
-    //                 return TurnStatus::Finished
-    //             },
-    //             _ => panic!("Player::take_turn(): invalid action")
-    //         }
-    //         if self.vps >= 10 {
-    //             return TurnStatus::Win;
-    //         }
-    //     }
-    // }
-
-    // fn take_turn(&mut self, has_rolled: bool, has_played_dv: bool) -> TurnStatus {
-    //     if !has_rolled {
-    //         self.take_preroll_turn(has_played_dv)
-    //     } else {
-    //         self.take_postroll_turn(has_played_dv)
-    //     }
-    // }
-}
-
 //// Coordinate manipulation
 // - Hex coords: axial coordinates (r, q)
 // r loosely corresponds with row, q with col.
@@ -912,28 +587,6 @@ const COORD_DIRS: [[isize; 2]; 6] = [
 
 const fn is_on_board(r: usize, q: usize) -> bool {
     r < 5 && q < 5 && r + q >= 2 && r + q <= 6
-}
-
-fn get_dup_corners(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 3]> {
-    let mut dups = vec![[r, q, corner]];
-    let neighbor1 = [(r as isize + COORD_DIRS[corner][0]) as usize, (q as isize + COORD_DIRS[corner][1]) as usize];
-    if is_on_board(neighbor1[0], neighbor1[1]) {
-        dups.push([neighbor1[0], neighbor1[1], (corner + 2) % 6]);
-    }
-    let neighbor2 = [(r as isize + COORD_DIRS[(corner + 1) % 6][0]) as usize, (q as isize + COORD_DIRS[(corner + 1) % 6][1]) as usize];
-    if is_on_board(neighbor2[0], neighbor2[1]) {
-        dups.push([neighbor2[0], neighbor2[1], (corner + 4) % 6]);
-    }
-    dups.into_iter()
-}
-
-fn get_dup_edges(r: usize, q: usize, edge: usize) -> impl Iterator<Item = [usize; 3]> {
-    let mut dups = vec![[r, q, edge]];
-    let neighbor = [(r as isize + COORD_DIRS[edge][0]) as usize, (q as isize + COORD_DIRS[edge][1]) as usize];
-    if is_on_board(neighbor[0], neighbor[1]) {
-        dups.push([neighbor[0], neighbor[1], (edge + 3) % 6]);
-    }
-    dups.into_iter()
 }
 
 const fn reduce_corner(r: usize, q: usize, corner: usize) -> [usize; 3] {
@@ -992,120 +645,103 @@ const fn reduce_edge(r: usize, q: usize, edge: usize) -> [usize; 3] {
     }
 }
 
+fn get_dup_corners(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 3]> {
+    let mut dups = vec![[r, q, corner]];
+    let neighbor1 = [(r as isize + COORD_DIRS[corner][0]) as usize, (q as isize + COORD_DIRS[corner][1]) as usize];
+    if is_on_board(neighbor1[0], neighbor1[1]) {
+        dups.push([neighbor1[0], neighbor1[1], (corner + 2) % 6]);
+    }
+    let neighbor2 = [(r as isize + COORD_DIRS[(corner + 1) % 6][0]) as usize, (q as isize + COORD_DIRS[(corner + 1) % 6][1]) as usize];
+    if is_on_board(neighbor2[0], neighbor2[1]) {
+        dups.push([neighbor2[0], neighbor2[1], (corner + 4) % 6]);
+    }
+    dups.into_iter()
+}
+
+fn get_dup_edges(r: usize, q: usize, edge: usize) -> impl Iterator<Item = [usize; 3]> {
+    let mut dups = vec![[r, q, edge]];
+    let neighbor = [(r as isize + COORD_DIRS[edge][0]) as usize, (q as isize + COORD_DIRS[edge][1]) as usize];
+    if is_on_board(neighbor[0], neighbor[1]) {
+        dups.push([neighbor[0], neighbor[1], (edge + 3) % 6]);
+    }
+    dups.into_iter()
+}
+
 fn corner_corner_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 3]> {
-    get_dup_corners(r, q, corner).map(move |[r_, q_, c]| [r_, q_, (c + 1) % 6])
+    let mut neighbors = vec![[r, q, (corner + 5) % 6], [r, q, (corner + 1) % 6]];
+
+    let hex_neighbor1 = [(r as isize + COORD_DIRS[corner][0]) as usize, (q as isize + COORD_DIRS[corner][1]) as usize];
+    let hex_neighbor2 = [(r as isize + COORD_DIRS[(corner + 1) % 6][0]) as usize, (q as isize + COORD_DIRS[(corner + 1) % 6][1]) as usize];
+    if is_on_board(hex_neighbor1[0], hex_neighbor1[1]) {
+        neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (corner + 1) % 6]);
+    } else if is_on_board(hex_neighbor2[0], hex_neighbor2[1]) {
+        neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (corner + 5) % 6]);
+    }
+    neighbors.into_iter()
 }
 
 fn edge_edge_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = [usize; 3]> {
-    get_dup_edges(r, q, edge).into_iter().flat_map(move |[r_, q_, e]|
-        [1, 5].into_iter().map(move |step_e| [r_, q_, (e + step_e) % 6])
-    )
+    let mut neighbors = vec![[r, q, (edge + 5) % 6], [r, q, (edge + 1) % 6]];
+    let full_neighbor = [(r as isize + COORD_DIRS[edge][0]) as usize, (q as isize + COORD_DIRS[edge][1]) as usize];
+    let half_neighbor_l = [(r as isize + COORD_DIRS[(edge + 5) % 6][0]) as usize, (q as isize + COORD_DIRS[(edge + 5) % 6][1]) as usize];
+    let half_neighbor_r = [(r as isize + COORD_DIRS[(edge + 1) % 6][0]) as usize, (q as isize + COORD_DIRS[(edge + 1) % 6][1]) as usize];
+    if is_on_board(full_neighbor[0], full_neighbor[1]) {
+        neighbors.push([full_neighbor[0], full_neighbor[1], (edge + 2) % 6]);
+        neighbors.push([full_neighbor[0], full_neighbor[1], (edge + 4) % 6]);
+    }
+    else {
+        if is_on_board(half_neighbor_l[0], half_neighbor_l[1]) {
+            neighbors.push([half_neighbor_l[0], half_neighbor_l[1], (edge + 1) % 6]);
+        }
+        if is_on_board(half_neighbor_r[0], half_neighbor_r[1]) {
+            neighbors.push([half_neighbor_r[0], half_neighbor_r[1], (edge + 5) % 6]);
+        }
+    }
+    neighbors.into_iter()
 }
 
 fn corner_edge_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 3]> {
-    get_dup_corners(r, q, corner) // hehe
+    let mut neighbors = vec![[r, q, (corner + 5) % 6], [r, q, (corner + 1) % 6]];
+
+    let hex_neighbor1 = [(r as isize + COORD_DIRS[corner][0]) as usize, (q as isize + COORD_DIRS[corner][1]) as usize];
+    let hex_neighbor2 = [(r as isize + COORD_DIRS[(corner + 1) % 6][0]) as usize, (q as isize + COORD_DIRS[(corner + 1) % 6][1]) as usize];
+    if is_on_board(hex_neighbor1[0], hex_neighbor1[1]) {
+        neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (corner + 2) % 6]);
+    } else if is_on_board(hex_neighbor2[0], hex_neighbor2[1]) {
+        neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (corner + 5) % 6]);
+    }
+    neighbors.into_iter()
 }
 
-fn edge_corner_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = [usize; 3]> {
-    get_dup_edges(r, q, edge).into_iter() // hehe
+fn edge_corner_neighbors(r: usize, q: usize, edge: usize) -> [[usize; 3]; 2] {
+    [[r, q, edge], [r, q, (edge + 5) % 6]]
+}
+
+fn intersecting_corner(edge1: [usize; 3], edge2: [usize; 3]) -> Option<[usize; 3]> {
+    edge_corner_neighbors(edge1[0], edge1[1], edge1[2]).into_iter()
+    .flat_map(|[r, q, c]| get_dup_corners(r, q, c))
+    .find(|&c1|
+        edge_corner_neighbors(edge2[0], edge2[1], edge2[2]).into_iter().any(|c2| c1 == c2)
+    )
 }
 
 fn get_roll<R: Rng + ?Sized>(rng: &mut R) -> usize {
     rng.random_range(1..=6) + rng.random_range(1..=6)
 }
 
-// pub fn play_game(num_players: usize) {
-//     let mut rng = rand::rng();
-//     let board = Rc::new(RefCell::new(Board::new(num_players, &mut rng)));
-//     let mut players = Vec::with_capacity(num_players);
-//     for i in 0..num_players {
-//         players.push(Player::new(PlayerColor::from(i), true, board.clone()));
-//     }
-
-//     for id in 0..num_players {
-//         println!("{:?}", board.borrow());
-//         players[id].take_setup_turn();
-//     }
-//     for id in (0..num_players).rev() {
-//         players[id].take_setup_turn();
-//     }
-//     let mut largest_army = num_players;
-//     let mut largest_army_size = 2;
-//     let mut longest_road = num_players;
-//     let mut longest_road_size = 4;
-    
-//     let mut turn = 0;
-//     let winner;
-
-//     let mut has_rolled = false;
-//     let mut has_played_dv = false;
-//     loop {
-//         match players[turn].take_turn(has_rolled, has_played_dv) {
-//             TurnStatus::Rolling => {
-//                 has_rolled = true;
-//                 let roll = get_roll(&mut rng);
-//                 if roll != 7 {
-//                     for (p, produced) in board.borrow().give_resources(roll).into_iter().enumerate() {
-//                         players[p].get_resources(produced);
-//                     }
-//                 } else {
-//                     turn += 1;
-//                     for _ in 1..num_players {
-//                         players[turn].handle_robber();
-//                         turn += 1;
-//                     }
-//                     if let Some(robbed) = players[turn].move_robber() {
-//                         let card_robbed = players[robbed].hand.pop_random(&mut rng);
-//                         players[turn].get_resources(ResHand::from(card_robbed));
-//                     }
-//                 }
-//             },
-//             TurnStatus::PlayedDV(dv_card) => {
-//                 has_played_dv = true;
-//             }
-//             TurnStatus::TradeOffer(give, get) => {
-//                 let mut responses: Vec<bool> = Vec::with_capacity(num_players);
-//                 turn += 1;
-//                 for _ in 1..num_players {
-//                     responses.push(players[turn].respond_to_trade(give, get));
-//                     turn += 1;
-//                 }
-//                 if let Some(trader) = players[turn].respond_to_trade_responses(responses) {
-//                     players[turn].discard_resources(give);
-//                     players[turn].get_resources(get);
-//                     players[trader].discard_resources(get);
-//                     players[trader].get_resources(give);
-//                 }
-//             },
-//             TurnStatus::Win => {
-//                 winner = turn;
-//                 break;
-//             }
-//             TurnStatus::Finished => {
-//                 if players[turn].knights > largest_army_size && largest_army != turn {
-//                     if largest_army != num_players {
-//                         players[largest_army].vps -= 2;
-//                     }
-//                     largest_army = turn;
-//                     players[largest_army].vps += 2;
-//                     largest_army_size = players[turn].knights;
-//                 }
-//                 if players[turn].road_len > longest_road_size && longest_road != turn {
-//                     if longest_road != num_players {
-//                         players[longest_road].vps -= 2;
-//                     }
-//                     longest_road = turn;
-//                     players[longest_road].vps += 2;
-//                     longest_road_size = players[turn].road_len;
-//                 }
-//                 has_rolled = false;
-//                 has_played_dv = false;
-//                 turn += 1;
-//             }
-//         }
-//     }
-//     println!("{} wins!", winner);
-// }
+struct Player {
+    color: PlayerColor,
+    is_human: bool,
+    vps: usize,
+    hand: ResHand,
+    dvs: DVHand,
+    new_dvs: DVHand,
+    knights: usize,
+    road_len: usize,
+    road_pool: usize,
+    settlement_pool: usize,
+    city_pool: usize,
+}
 
 enum Action {
     Idling,
@@ -1128,24 +764,47 @@ fn mouse_is_on_circle(mouse_pos: (f32, f32), center: &[f32; 2], radius: f32) -> 
     (mouse_pos.0 - center[0]).powi(2) + (mouse_pos.1 - center[1]).powi(2) <= radius.powi(2)
 }
 
-fn handle_click(clickables: &ClickablePoints, board: &mut Board, state: &TurnState, hand: &ResHand) {
+fn handle_road_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), board: &mut Board, state: &TurnState) {
+    let radius = 0.2 * clickables.board_scale;
+    let color = state.player;
+    let maybe_idx = clickables.edges.iter().position(
+        |pos| mouse_is_on_circle(mouse_pos, pos, radius)
+    );
+    if let Some(idx) = maybe_idx {
+        let [r, q, edge] = EDGE_COORDS[idx];
+        if board.can_place_road(r, q, edge, color) {
+            board.place_road(r, q, edge, color);
+        }
+    }
+}
+
+fn handle_structure_click(structure_type: StructureType, clickables: &ClickablePoints, mouse_pos: (f32, f32), board: &mut Board, state: &TurnState) {
+    let radius = 0.2 * clickables.board_scale;
+    let color = state.player;
+    let maybe_idx = clickables.corners.iter().position(
+        |pos| mouse_is_on_circle(mouse_pos, pos, radius)
+    );
+    if let Some(idx) = maybe_idx {
+        let [r, q, corner] = CORNER_COORDS[idx];
+        if structure_type == StructureType::Settlement
+        && board.can_place_settlement(r, q, corner, color) {
+            board.place_settlement(r, q, corner, color);
+        }
+        else if board.can_upgrade_to_city(r, q, corner, color) {
+            board.upgrade_to_city(r, q, corner);
+        }
+    }
+}
+
+fn handle_click(clickables: &ClickablePoints, board: &mut Board, state: &TurnState) {
     let mouse_pos = macroquad::input::mouse_position();
     match state.action {
         Action::Idling => (),
         Action::Discarding(_) => (),
         Action::MovingRobber => (),
-        Action::BuildingRoad => (),
-        Action::BuildingSettlement => {
-            let radius = 0.2 * clickables.board_scale;
-            let (idx, [x, y]) = clickables.corners.iter().copied().enumerate()
-                .filter(|(i, pos)| mouse_is_on_circle(mouse_pos, pos, radius))
-                .next().unwrap();
-            let [r, q, corner] = CORNER_COORDS[idx];
-            if board.can_place_settlement(r, q, corner, state.player) {
-                board.place_settlement(r, q, corner, state.player);
-            }
-        },
-        Action::UpgradingToCity => (),
+        Action::BuildingRoad => handle_road_click(clickables, mouse_pos, board, state),
+        Action::BuildingSettlement => handle_structure_click(StructureType::Settlement, clickables, mouse_pos, board, state),
+        Action::UpgradingToCity => handle_structure_click(StructureType::City, clickables, mouse_pos, board, state),
     }
 }
 
@@ -1157,7 +816,6 @@ async fn main() {
 
     board.place_settlement(2, 2, 3, PlayerColor::Orange);
     board.place_settlement(2, 2, 0, PlayerColor::Blue);
-    // board.upgrade_to_city(2, 2, 0);
     board.place_road(2, 2, 0, PlayerColor::Blue);
     board.place_road(2, 2, 5, PlayerColor::Blue);
     board.place_road(1, 2, 4, PlayerColor::Blue);
@@ -1168,34 +826,19 @@ async fn main() {
     let full_hand = ResHand([1, 1, 2, 0, 3]);
     let full_dv_hand = DVHand([1, 0, 0, 1, 1]);
 
-    let pre_roll = TurnState {
-        player: PlayerColor::Red,
-        action: Action::Idling,
-        roll: None,
-        played_dv: false,
-        offered_trades: Vec::new()
-    };
-    let post_roll = TurnState {
-        player: PlayerColor::Blue,
+    let state = TurnState {
+        player: PlayerColor::Orange,
         action: Action::Idling,
         roll: Some([3, 4]),
         played_dv: false,
         offered_trades: Vec::new()
     };
-    let doing = TurnState {
-        player: PlayerColor::Blue,
-        action: Action::BuildingSettlement,
-        roll: Some([3, 4]),
-        played_dv: false,
-        offered_trades: Vec::new()
-    };
-    let state = &doing;
 
     let mut clickables;
     loop {
-        clickables = render_screen(&board, &full_hand, &full_dv_hand, state);
+        clickables = render_screen(&board, &full_hand, &full_dv_hand, &state);
         if macroquad::input::is_mouse_button_down(macroquad::input::MouseButton::Left) {
-            handle_click(&clickables, &mut board, state, &full_hand);
+            handle_click(&clickables, &mut board, &state);
         }
         macroquad::window::next_frame().await
     }

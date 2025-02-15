@@ -649,7 +649,7 @@ fn render_upgrading_to_city(corners: &[[f32; 2]; 54], board: &Board, player: Pla
     for (_, [x, y]) in corners.iter().copied().enumerate()
         .filter(|(idx, _)| {
             let [r, q, c] = CORNER_COORDS[*idx];
-            board.structure_is_color(r, q, c, player)
+            board.can_upgrade_to_city(r, q, c, player)
         }
     ) {
         draw_circle(x, y, radius, DARKGRAY);
