@@ -1,4 +1,4 @@
-use macroquad::{prelude::*, ui};
+use macroquad::prelude::*;
 
 use crate::{Action, Board, DVCard, DVHand, Hex, PlayerColor, Port, ResHand, Resource, StructureType, TurnState};
 use crate::{BOARD_COORDS, PORT_COORDS, CORNER_COORDS, EDGE_COORDS, RESOURCES, DV_CARDS, DV_CARD_HAND, ROAD_HAND, SETTLEMENT_HAND, CITY_HAND};
@@ -38,7 +38,7 @@ struct HandPoints {
     num_cards: usize,
 }
 
-struct UIPoints {
+struct MenuPoints {
     buttons: [[f32; 2]; 5],
     button_size: f32
 }
@@ -63,7 +63,7 @@ pub struct ClickablePoints {
 }
 
 impl ClickablePoints {
-    fn new(board_points: BoardPoints, hand_points: HandPoints, ui_points: UIPoints, dice_points: DicePoints) -> ClickablePoints {
+    fn new(board_points: BoardPoints, hand_points: HandPoints, menu_points: MenuPoints, dice_points: DicePoints) -> ClickablePoints {
         ClickablePoints {
             centers: board_points.centers,
             corners: board_points.corners,
@@ -72,8 +72,8 @@ impl ClickablePoints {
             cards: hand_points.cards,
             card_size: hand_points.card_size,
             num_cards: hand_points.num_cards,
-            buttons: ui_points.buttons,
-            button_size: ui_points.button_size,
+            buttons: menu_points.buttons,
+            button_size: menu_points.button_size,
             dice: dice_points.dice,
             dice_size: dice_points.dice_size
         }
@@ -493,7 +493,7 @@ fn get_buttons(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]
     let shift = if scale < height {
         scale
     } else {
-        scale + (width - 5.0 * scale) / 4.0
+        scale + (width - 5.0 * scale) / 5.0
     };
 
     let start_x = x + shift - scale;
@@ -504,6 +504,26 @@ fn get_buttons(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]
         buttons[i] = [start_x + i as f32 * shift, y]
     }
     buttons
+}
+
+fn get_clickable_buttons(board: &Board, hand: &ResHand, turn_state: &TurnState) -> [bool; 5] {
+    if turn_state.roll.is_some() {
+        match turn_state.action {
+            Action::Idling => [
+                hand.can_disc(DV_CARD_HAND),
+                hand.can_disc(ROAD_HAND) && EDGE_COORDS.iter().any(|&[r, q, e]| board.can_place_road(r, q, e, turn_state.player)),
+                hand.can_disc(SETTLEMENT_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_place_settlement(r, q, c, turn_state.player)),
+                hand.can_disc(CITY_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_upgrade_to_city(r, q, c, turn_state.player)),
+                true
+            ],
+            Action::BuildingRoad => [false, true, false, false, false],
+            Action::BuildingSettlement => [false, false, true, false, false],
+            Action::UpgradingToCity => [false, false, false, true, false],
+            _ => [false, false, false, false, false]
+        }
+    } else {[
+        false, false, false, false, false
+    ]}
 }
 
 fn render_button(pos: [f32; 2], size: f32, can_click: bool, label: &str) {
@@ -520,26 +540,18 @@ fn render_button(pos: [f32; 2], size: f32, can_click: bool, label: &str) {
     draw_text(label, text_x, text_y, font_size, BLACK);
 }
 
-fn render_ui(zone: Zone, hand: &ResHand, turn_state: &TurnState) -> UIPoints {
+fn render_menu(zone: Zone, board: &Board, hand: &ResHand, turn_state: &TurnState) -> MenuPoints {
     let Zone { x, y, width, height } = zone;
     let scale = if height < width / 5.0 {height} else {width / 5.0};
 
     let buttons = get_buttons(x, y, width, height, scale);
-    let can_click = if turn_state.roll.is_some() {[
-        hand.can_disc(DV_CARD_HAND),
-        hand.can_disc(ROAD_HAND),
-        hand.can_disc(SETTLEMENT_HAND),
-        hand.can_disc(CITY_HAND),
-        true
-    ]} else {[
-        false, false, false, false, false
-    ]};
+    let can_click = get_clickable_buttons(board, hand, turn_state);
     let labels = [
         "Devel",
         "Road",
         "Settl",
         "City",
-        "Trade"
+        "Pass"
     ];
 
     draw_rectangle(x, y, width, height, BEIGE);
@@ -547,7 +559,7 @@ fn render_ui(zone: Zone, hand: &ResHand, turn_state: &TurnState) -> UIPoints {
         render_button(buttons[i], scale, can_click[i], labels[i]);
     }
 
-    UIPoints {
+    MenuPoints {
         buttons,
         button_size: scale
     }
@@ -596,6 +608,11 @@ fn render_dice(zone: Zone, turn_state: &TurnState) -> DicePoints {
         dice,
         dice_size: scale
     }
+}
+
+fn render_turn_view(zone: Zone, turn_state: &TurnState) {
+    let Zone { x, y, width, height } = zone;
+    draw_rectangle(x, y, width, height, turn_state.player.into());
 }
 
 fn render_discarding(hand: &ResHand) {
@@ -675,15 +692,17 @@ pub fn render_screen(board: &Board, hand: &ResHand, dvs: &DVHand, turn_state: &T
 
     let board_zone = Zone::new(screen_width, screen_height, 0.0, 0.0, 1.0, 0.85);
     let hand_zone = Zone::new(screen_width, screen_height, 0.0, 0.85, 0.6, 0.15);
-    let ui_zone = Zone::new(screen_width, screen_height, 0.6, 0.85, 0.4, 0.15);
+    let menu_zone = Zone::new(screen_width, screen_height, 0.6, 0.85, 0.4, 0.15);
     let dice_zone = Zone::new(screen_width, screen_height, 0.8, 0.70, 0.2, 0.15);
+    let turn_zone = Zone::new(screen_width, screen_height, 0.0, 0.0, 0.2, 0.1);
 
     clear_background(BLUE);
     let board_points = render_board(board_zone, board);
     let hand_points = render_hand(hand_zone, hand, dvs);
-    let ui_points = render_ui(ui_zone, hand, &turn_state);
-    let dice_points = render_dice(dice_zone, &turn_state);
+    let menu_points = render_menu(menu_zone, board, hand, turn_state);
+    let dice_points = render_dice(dice_zone, turn_state);
+    render_turn_view(turn_zone, turn_state);
     render_state_dependents(screen_width, screen_height, &board_points, turn_state, board);
 
-    ClickablePoints::new(board_points, hand_points, ui_points, dice_points)
+    ClickablePoints::new(board_points, hand_points, menu_points, dice_points)
 }

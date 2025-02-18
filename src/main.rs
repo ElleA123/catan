@@ -1,4 +1,4 @@
-use std::ops::{Index, IndexMut};
+use std::{ops::{Index, IndexMut}, thread::current};
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
 
 pub mod render;
@@ -13,15 +13,16 @@ enum PlayerColor {
     White=3
 }
 
+const PLAYER_COLORS: [PlayerColor; 4] = [
+    PlayerColor::Red,
+    PlayerColor::Blue,
+    PlayerColor::Orange,
+    PlayerColor::White,
+];
+
 impl From<usize> for PlayerColor {
     fn from(value: usize) -> Self {
-        match value % 4 {
-            0 => PlayerColor::Red,
-            1 => PlayerColor::Blue,
-            2 => PlayerColor::Orange,
-            3 => PlayerColor::White,
-            _ => panic!("PlayerColor::from(): Math has died :(")
-        }
+        PLAYER_COLORS[value % 4]
     }
 }
 
@@ -675,7 +676,7 @@ fn corner_corner_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<I
     if is_on_board(hex_neighbor1[0], hex_neighbor1[1]) {
         neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (corner + 1) % 6]);
     } else if is_on_board(hex_neighbor2[0], hex_neighbor2[1]) {
-        neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (corner + 5) % 6]);
+        neighbors.push([hex_neighbor2[0], hex_neighbor2[1], (corner + 5) % 6]);
     }
     neighbors.into_iter()
 }
@@ -701,14 +702,14 @@ fn edge_edge_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = 
 }
 
 fn corner_edge_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 3]> {
-    let mut neighbors = vec![[r, q, (corner + 5) % 6], [r, q, (corner + 1) % 6]];
+    let mut neighbors = vec![[r, q, corner], [r, q, (corner + 1) % 6]];
 
     let hex_neighbor1 = [(r as isize + COORD_DIRS[corner][0]) as usize, (q as isize + COORD_DIRS[corner][1]) as usize];
     let hex_neighbor2 = [(r as isize + COORD_DIRS[(corner + 1) % 6][0]) as usize, (q as isize + COORD_DIRS[(corner + 1) % 6][1]) as usize];
     if is_on_board(hex_neighbor1[0], hex_neighbor1[1]) {
         neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (corner + 2) % 6]);
     } else if is_on_board(hex_neighbor2[0], hex_neighbor2[1]) {
-        neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (corner + 5) % 6]);
+        neighbors.push([hex_neighbor2[0], hex_neighbor2[1], (corner + 5) % 6]);
     }
     neighbors.into_iter()
 }
@@ -743,6 +744,70 @@ struct Player {
     city_pool: usize,
 }
 
+impl Player {
+    fn new(color: PlayerColor) -> Player {
+        Player {
+            color,
+            is_human: true,
+            vps: 0,
+            hand: ResHand::new(),
+            dvs: DVHand::new(),
+            new_dvs: DVHand::new(),
+            knights: 0,
+            road_len: 0,
+            road_pool: 15,
+            settlement_pool: 5,
+            city_pool: 4,
+        }
+    }
+
+    fn can_buy_dv(&self) -> bool {
+        self.hand.can_disc(DV_CARD_HAND)
+    }
+
+    fn buy_dv(&mut self, dv: DVCard) {
+        self.hand.discard(DV_CARD_HAND);
+        self.new_dvs[dv] += 1;
+    }
+
+    fn can_build_road(&self) -> bool {
+        self.hand.can_disc(ROAD_HAND)
+    }
+
+    fn can_build_settlement(&self) -> bool {
+        self.hand.can_disc(SETTLEMENT_HAND)
+    }
+
+    fn can_upgrade_to_city(&self) -> bool {
+        self.hand.can_disc(CITY_HAND)
+    }
+}
+
+struct Players(Vec<Player>);
+
+impl Players {
+    fn new(num_players: usize) -> Players {
+        let mut players = Vec::with_capacity(num_players);
+        for i in 0..num_players {
+            players.push(Player::new(PlayerColor::from(i)));
+        }
+        Players(players)
+    }
+}
+
+impl Index<PlayerColor> for Players {
+    type Output = Player;
+    fn index(&self, index: PlayerColor) -> &Self::Output {
+        &self.0[index as usize]
+    }
+}
+
+impl IndexMut<PlayerColor> for Players {
+    fn index_mut(&mut self, index: PlayerColor) -> &mut Self::Output {
+        &mut self.0[index as usize]
+    }
+}
+
 enum Action {
     Idling,
     Discarding(ResHand),
@@ -757,14 +822,69 @@ pub struct TurnState {
     action: Action,
     roll: Option<[usize; 2]>,
     played_dv: bool,
-    offered_trades: Vec<(ResHand, ResHand)>
+    offering_trade: bool,
+    offered_trades: Vec<(ResHand, ResHand)>,
+    passed_turn: bool,
+}
+
+impl TurnState {
+    fn pass_turn(&mut self, new_player: PlayerColor) {
+        self.player = new_player;
+        self.action = Action::Idling;
+        self.roll = None;
+        self.played_dv = false;
+        self.offering_trade = false;
+        self.passed_turn = false;
+    }
 }
 
 fn mouse_is_on_circle(mouse_pos: (f32, f32), center: &[f32; 2], radius: f32) -> bool {
     (mouse_pos.0 - center[0]).powi(2) + (mouse_pos.1 - center[1]).powi(2) <= radius.powi(2)
 }
 
-fn handle_road_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), board: &mut Board, state: &TurnState) {
+fn mouse_is_on_square(mouse_pos: (f32, f32), pos: [f32; 2], size: f32) -> bool {
+    mouse_pos.0 > pos[0] && mouse_pos.0 < pos[0] + size
+    && mouse_pos.1 > pos[1] && mouse_pos.1 < pos[1] + size
+}
+
+fn handle_idle_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), player: &mut Player, board: &mut Board, state: &mut TurnState) {
+    let maybe_menu_id = clickables.buttons.iter().position(|&pos| mouse_is_on_square(mouse_pos, pos, clickables.button_size));
+    if let Some(id) = maybe_menu_id {
+        match id {
+            0 => {
+                if player.can_buy_dv() {
+                    player.buy_dv(board.draw_dv_card());
+                }
+            },
+            1 => {
+                if player.can_build_road() {
+                    state.action = Action::BuildingRoad;
+                }
+            },
+            2 => {
+                if player.can_build_settlement() {
+                    state.action = Action::BuildingSettlement;
+                }
+            },
+            3 => {
+                if player.can_upgrade_to_city() {
+                    state.action = Action::UpgradingToCity;
+                }
+            },
+            4 => {
+                state.passed_turn = true;
+            },
+            _ => panic!("handle_idle_click(): illegal menu button")
+        }
+    }
+
+}
+
+fn handle_road_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), player: &mut Player, board: &mut Board, state: &mut TurnState) {
+    if mouse_is_on_square(mouse_pos, clickables.buttons[1], clickables.button_size) {
+        state.action = Action::Idling;
+        return
+    }
     let radius = 0.2 * clickables.board_scale;
     let color = state.player;
     let maybe_idx = clickables.edges.iter().position(
@@ -773,12 +893,19 @@ fn handle_road_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), board:
     if let Some(idx) = maybe_idx {
         let [r, q, edge] = EDGE_COORDS[idx];
         if board.can_place_road(r, q, edge, color) {
+            player.hand.discard(ROAD_HAND);
             board.place_road(r, q, edge, color);
+            state.action = Action::Idling;
         }
     }
 }
 
-fn handle_structure_click(structure_type: StructureType, clickables: &ClickablePoints, mouse_pos: (f32, f32), board: &mut Board, state: &TurnState) {
+fn handle_structure_click(structure_type: StructureType, clickables: &ClickablePoints, mouse_pos: (f32, f32), player: &mut Player, board: &mut Board, state: &mut TurnState) {
+    let cancel_button = if structure_type == StructureType::Settlement {clickables.buttons[2]} else {clickables.buttons[3]};
+    if mouse_is_on_square(mouse_pos, cancel_button, clickables.button_size) {
+        state.action = Action::Idling;
+        return
+    }
     let radius = 0.2 * clickables.board_scale;
     let color = state.player;
     let maybe_idx = clickables.corners.iter().position(
@@ -788,23 +915,27 @@ fn handle_structure_click(structure_type: StructureType, clickables: &ClickableP
         let [r, q, corner] = CORNER_COORDS[idx];
         if structure_type == StructureType::Settlement
         && board.can_place_settlement(r, q, corner, color) {
+            player.hand.discard(SETTLEMENT_HAND);
             board.place_settlement(r, q, corner, color);
+            state.action = Action::Idling;
         }
         else if board.can_upgrade_to_city(r, q, corner, color) {
+            player.hand.discard(CITY_HAND);
             board.upgrade_to_city(r, q, corner);
+            state.action = Action::Idling;
         }
     }
 }
 
-fn handle_click(clickables: &ClickablePoints, board: &mut Board, state: &TurnState) {
+fn handle_click(clickables: &ClickablePoints, player: &mut Player, board: &mut Board, state: &mut TurnState) {
     let mouse_pos = macroquad::input::mouse_position();
     match state.action {
-        Action::Idling => (),
+        Action::Idling => handle_idle_click(clickables, mouse_pos, player, board, state),
         Action::Discarding(_) => (),
         Action::MovingRobber => (),
-        Action::BuildingRoad => handle_road_click(clickables, mouse_pos, board, state),
-        Action::BuildingSettlement => handle_structure_click(StructureType::Settlement, clickables, mouse_pos, board, state),
-        Action::UpgradingToCity => handle_structure_click(StructureType::City, clickables, mouse_pos, board, state),
+        Action::BuildingRoad => handle_road_click(clickables, mouse_pos, player, board, state),
+        Action::BuildingSettlement => handle_structure_click(StructureType::Settlement, clickables, mouse_pos, player, board, state),
+        Action::UpgradingToCity => handle_structure_click(StructureType::City, clickables, mouse_pos, player, board, state),
     }
 }
 
@@ -821,24 +952,38 @@ async fn main() {
     board.place_road(1, 2, 4, PlayerColor::Blue);
     board.place_road(2, 1, 3, PlayerColor::Blue);
 
+    let mut players = Players::new(num_players);
+    
+    let order: Vec<PlayerColor> = PLAYER_COLORS.choose_multiple(&mut rng, num_players).copied().collect();
+    let mut current_player = 0;
 
-    let empty_hand = ResHand::new();
-    let full_hand = ResHand([1, 1, 2, 0, 3]);
-    let full_dv_hand = DVHand([1, 0, 0, 1, 1]);
-
-    let state = TurnState {
+    let mut state = TurnState {
         player: PlayerColor::Orange,
         action: Action::Idling,
         roll: Some([3, 4]),
         played_dv: false,
-        offered_trades: Vec::new()
+        offering_trade: false,
+        offered_trades: Vec::new(),
+        passed_turn: false,
     };
+
+    players[PlayerColor::Orange].hand.add(ROAD_HAND);
+    players[PlayerColor::Orange].hand.add(ROAD_HAND);
+    players[PlayerColor::Orange].hand.add(SETTLEMENT_HAND);
+    players[PlayerColor::Orange].dvs.add(DVHand([1, 1, 1, 1, 1]));
 
     let mut clickables;
     loop {
-        clickables = render_screen(&board, &full_hand, &full_dv_hand, &state);
-        if macroquad::input::is_mouse_button_down(macroquad::input::MouseButton::Left) {
-            handle_click(&clickables, &mut board, &state);
+        if state.passed_turn {
+            current_player = (current_player + 1) % 4;
+            state.pass_turn(order[current_player]);
+        }
+
+        let player = &mut players[state.player];
+
+        clickables = render_screen(&board, &player.hand, &player.dvs, &state);
+        if macroquad::input::is_mouse_button_pressed(macroquad::input::MouseButton::Left) {
+            handle_click(&clickables, player, &mut board, &mut state);
         }
         macroquad::window::next_frame().await
     }
