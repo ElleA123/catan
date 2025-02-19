@@ -511,9 +511,9 @@ fn get_clickable_buttons(board: &Board, hand: &ResHand, state: &GameState) -> [b
         match state.action {
             Action::Idling => [
                 hand.can_disc(DV_CARD_HAND),
-                hand.can_disc(ROAD_HAND) && EDGE_COORDS.iter().any(|&[r, q, e]| board.can_place_road(r, q, e, state.get_current_color())),
-                hand.can_disc(SETTLEMENT_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_place_settlement(r, q, c, state.get_current_color())),
-                hand.can_disc(CITY_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_upgrade_to_city(r, q, c, state.get_current_color())),
+                hand.can_disc(ROAD_HAND) && EDGE_COORDS.iter().any(|&[r, q, e]| board.can_place_road(r, q, e, state.get_current_player().color)),
+                hand.can_disc(SETTLEMENT_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_place_settlement(r, q, c, state.get_current_player().color)),
+                hand.can_disc(CITY_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_upgrade_to_city(r, q, c, state.get_current_player().color)),
                 true
             ],
             Action::BuildingRoad => [false, true, false, false, false],
@@ -612,7 +612,7 @@ fn render_dice(zone: Zone, state: &GameState) -> DicePoints {
 
 fn render_turn_view(zone: Zone, state: &GameState) {
     let Zone { x, y, width, height } = zone;
-    draw_rectangle(x, y, width, height, state.get_current_color().into());
+    draw_rectangle(x, y, width, height, state.get_current_player().color.into());
     draw_text(state.get_current_player().vps.to_string().as_str(), x, y + height, 40.0, BLACK);
 }
 
@@ -681,9 +681,9 @@ fn render_state_dependents(screen_width: f32, screen_height: f32, board_points: 
         Action::Idling => (),
         Action::Discarding(hand) => render_discarding(&hand),
         Action::MovingRobber => render_moving_robber(centers, board, radius),
-        Action::BuildingRoad => render_building_road(edges, board, state.get_current_color(), radius),
-        Action::BuildingSettlement => render_building_settlement(corners, board, state.get_current_color(), radius),
-        Action::UpgradingToCity => render_upgrading_to_city(corners, board, state.get_current_color(), radius)
+        Action::BuildingRoad => render_building_road(edges, board, state.get_current_player().color, radius),
+        Action::BuildingSettlement => render_building_settlement(corners, board, state.get_current_player().color, radius),
+        Action::UpgradingToCity => render_upgrading_to_city(corners, board, state.get_current_player().color, radius)
     }
 }
 

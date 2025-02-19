@@ -158,6 +158,10 @@ impl ResHand {
         self.0.iter().sum()
     }
 
+    fn count_nonzero(&self) -> usize {
+        self.0.iter().filter(|&c| *c != 0).count()
+    }
+
     fn add(&mut self, rhs: ResHand) {
         for res in RESOURCES {
             self[res] += rhs[res];
@@ -168,13 +172,16 @@ impl ResHand {
         RESOURCES.iter().all(|&res| self[res] >= rhs[res])
     }
 
-    fn pop_random<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Resource {
+    fn pop_random<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<Resource> {
+        if self.size() == 0 {
+            return None;
+        }
         let mut selected = rng.random_range(0..self.size());
         for res in RESOURCES {
             let count = self[res];
             if selected < count {
                 self[res] -= 1;
-                return res;
+                return Some(res);
             } else {
                 selected -= count;
             }
@@ -246,6 +253,11 @@ impl DVHand {
 
     fn size(&self) -> usize {
         self.0.iter().sum()
+    }
+
+    fn nth_nonzero(&self, n: usize) -> Option<DVCard> {
+        println!("finding {n}th dv card");
+        DV_CARDS.iter().copied().filter(|c| self[*c] > 0).nth(n)
     }
 
     fn add_card(&mut self, card: DVCard) {
@@ -774,6 +786,12 @@ impl Player {
         }
     }
 
+    fn get_combined_dvs(&self) -> DVHand {
+        let mut combined = self.dvs;
+        combined.add(self.new_dvs);
+        combined
+    }
+
     fn can_buy_dv(&self) -> bool {
         self.hand.can_disc(DV_CARD_HAND)
     }
@@ -823,11 +841,16 @@ pub struct GameState {
     num_players: usize,
     board: Board,
     players: Vec<Player>,
+    largest_army: Option<PlayerColor>,
+    largest_army_size: usize,
+    longest_road: Option<PlayerColor>,
+    longest_road_size: usize,
     current_player: usize,
     action: Action,
     rolling_dice: bool,
     roll: Option<[usize; 2]>,
     played_dv: bool,
+    stealing_from: Option<PlayerColor>,
     offering_trade: bool,
     offered_trades: Vec<(ResHand, ResHand)>,
     passing_turn: bool,
@@ -844,19 +867,20 @@ impl GameState {
             num_players,
             board,
             players,
+            largest_army: None,
+            largest_army_size: 2,
+            longest_road: None,
+            longest_road_size: 4,
             current_player: 0,
             action: Action::Idling,
             rolling_dice: false,
             roll: None,
             played_dv: false,
+            stealing_from: None,
             offering_trade: false,
             offered_trades: Vec::new(),
             passing_turn: false,
         }
-    }
-
-    fn get_current_color(&self) -> PlayerColor {
-        self.players[self.current_player].color
     }
 
     fn get_current_player(&self) -> &Player {
@@ -867,8 +891,16 @@ impl GameState {
         &mut self.players[self.current_player]
     }
 
+    fn get_player(&self, color: PlayerColor) -> Option<&Player> {
+        self.players.iter().find(|player| player.color == color)
+    }
+
+    fn get_player_mut(&mut self, color: PlayerColor) -> Option<&mut Player> {
+        self.players.iter_mut().find(|player| player.color == color)
+    }
+
     fn handle_setup_settlement_click(&mut self, mouse_pos: (f32, f32), clickables: &ClickablePoints) -> Option<[usize; 3]> {
-        let color = self.get_current_color();
+        let color = self.get_current_player().color;
         let radius = 0.2 * clickables.board_scale;
         let maybe_idx = clickables.corners.iter().position(
             |pos| mouse_is_on_circle(mouse_pos, pos, radius)
@@ -885,7 +917,7 @@ impl GameState {
     }
 
     fn handle_setup_road_click(&mut self, settlement_coord: [usize; 3], mouse_pos: (f32, f32), clickables: &ClickablePoints) -> bool {
-        let color = self.get_current_color();
+        let color = self.get_current_player().color;
         let radius = 0.2 * clickables.board_scale;
         let maybe_idx = clickables.edges.iter().position(
             |pos| mouse_is_on_circle(mouse_pos, pos, radius)
@@ -984,16 +1016,69 @@ fn mouse_is_on_circle(mouse_pos: (f32, f32), center: &[f32; 2], radius: f32) -> 
     (mouse_pos.0 - center[0]).powi(2) + (mouse_pos.1 - center[1]).powi(2) <= radius.powi(2)
 }
 
-fn mouse_is_on_square(mouse_pos: (f32, f32), pos: [f32; 2], size: f32) -> bool {
-    mouse_pos.0 > pos[0] && mouse_pos.0 < pos[0] + size
-    && mouse_pos.1 > pos[1] && mouse_pos.1 < pos[1] + size
+fn mouse_is_on_rect(mouse_pos: (f32, f32), pos: [f32; 2], width: f32, height: f32) -> bool {
+    mouse_pos.0 > pos[0] && mouse_pos.0 < pos[0] + width
+    && mouse_pos.1 > pos[1] && mouse_pos.1 < pos[1] + height
+}
+
+fn handle_knight(state: &mut GameState) {
+    println!("handling knight");
+    state.get_current_player_mut().knights += 1;
+    if state.get_current_player().knights > state.largest_army_size {
+        let old_player = state.largest_army.replace(state.get_current_player().color);
+        state.largest_army_size = state.get_current_player().knights;
+        if let Some(player) = old_player {
+            state.get_player_mut(player).unwrap().vps -= 2;
+        }
+        state.get_current_player_mut().vps += 2;
+        if state.winner().is_some() {
+            return
+        }
+    }
+    state.action = Action::MovingRobber;
+}
+
+fn handle_road_building(state: &mut GameState) {
+    // Ughhh
+}
+
+fn handle_year_of_plenty(state: &mut GameState) {
+    // Hand selector, size of 2
+}
+
+fn handle_monopoly(state: &mut GameState) {
+    // Reuse hand selector API w/ size of 1?
+}
+
+fn handle_dv_card(card: DVCard, state: &mut GameState) {
+    state.get_current_player_mut().dvs[card] -= 1;
+    match card {
+        DVCard::Knight => handle_knight(state),
+        DVCard::RoadBuilding => handle_road_building(state),
+        DVCard::YearOfPlenty => handle_year_of_plenty(state),
+        DVCard::Monopoly => handle_monopoly(state),
+        DVCard::VictoryPoint => ()
+    }
 }
 
 fn handle_idle_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), state: &mut GameState) {
-    if clickables.dice.iter().any(|pos| mouse_is_on_square(mouse_pos, *pos, clickables.dice_size)) {
+    if clickables.dice.iter().any(|pos| mouse_is_on_rect(mouse_pos, *pos, clickables.dice_size, clickables.dice_size)) {
         state.rolling_dice = true;
-    } else if state.roll.is_some() {
-        let maybe_menu_id = clickables.buttons.iter().position(|&pos| mouse_is_on_square(mouse_pos, pos, clickables.button_size));
+    }
+    else if let Some(id) = clickables.cards.iter().position(|pos| mouse_is_on_rect(mouse_pos, *pos, clickables.card_size[0], clickables.card_size[1])) {
+        println!("{}th card clicked", id);
+        if id >= state.get_current_player().hand.count_nonzero() {
+            println!("its a dv");
+            let card = state.get_current_player().get_combined_dvs()
+                .nth_nonzero(id - state.get_current_player().hand.count_nonzero()).unwrap();
+            println!("{:?}", card);
+            if state.get_current_player().dvs[card] > 0 {
+                handle_dv_card(card, state);
+            }
+        }
+    }
+    else if state.roll.is_some() {
+        let maybe_menu_id = clickables.buttons.iter().position(|&pos| mouse_is_on_rect(mouse_pos, pos, clickables.button_size, clickables.button_size));
         if let Some(id) = maybe_menu_id {
             match id {
                 0 => {
@@ -1026,13 +1111,37 @@ fn handle_idle_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), state:
     }
 }
 
+fn handle_steal(state: &mut GameState) {
+    let opts = state.board.get_colors_on_hex(state.board.robber[0], state.board.robber[1]);
+    if opts.len() == 0 {
+        return;
+    }
+    let target = if opts.len() == 1 {opts[0]} else {opts[0]}; // TODO
+    state.stealing_from = Some(target);
+}
+
+fn handle_robber_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), state: &mut GameState) {
+    let radius= 0.46 * clickables.board_scale;
+    let maybe_idx = clickables.centers.iter().position(
+        |center| mouse_is_on_circle(mouse_pos, center, clickables.board_scale)
+    );
+    if let Some(idx) = maybe_idx {
+        let coord = BOARD_COORDS[idx];
+        if state.board.robber != coord {
+            state.board.robber = coord;
+            handle_steal(state);
+        }
+        state.action = Action::Idling;
+    }
+}
+
 fn handle_road_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), state: &mut GameState) {
-    if mouse_is_on_square(mouse_pos, clickables.buttons[1], clickables.button_size) {
+    if mouse_is_on_rect(mouse_pos, clickables.buttons[1], clickables.button_size, clickables.button_size) {
         state.action = Action::Idling;
         return
     }
     let radius = 0.2 * clickables.board_scale;
-    let color = state.get_current_color();
+    let color = state.get_current_player().color;
     let maybe_idx = clickables.edges.iter().position(
         |pos| mouse_is_on_circle(mouse_pos, pos, radius)
     );
@@ -1048,12 +1157,12 @@ fn handle_road_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), state:
 
 fn handle_structure_click(structure_type: StructureType, clickables: &ClickablePoints, mouse_pos: (f32, f32), state: &mut GameState) {
     let cancel_button = if structure_type == StructureType::Settlement {clickables.buttons[2]} else {clickables.buttons[3]};
-    if mouse_is_on_square(mouse_pos, cancel_button, clickables.button_size) {
+    if mouse_is_on_rect(mouse_pos, cancel_button, clickables.button_size, clickables.button_size) {
         state.action = Action::Idling;
         return
     }
     let radius = 0.2 * clickables.board_scale;
-    let color = state.get_current_color();
+    let color = state.get_current_player().color;
     let maybe_idx = clickables.corners.iter().position(
         |pos| mouse_is_on_circle(mouse_pos, pos, radius)
     );
@@ -1078,7 +1187,7 @@ fn handle_click(clickables: &ClickablePoints, state: &mut GameState) {
     match state.action {
         Action::Idling => handle_idle_click(clickables, mouse_pos, state),
         Action::Discarding(_) => (),
-        Action::MovingRobber => (),
+        Action::MovingRobber => handle_robber_click(clickables, mouse_pos, state),
         Action::BuildingRoad => handle_road_click(clickables, mouse_pos, state),
         Action::BuildingSettlement => handle_structure_click(StructureType::Settlement, clickables, mouse_pos, state),
         Action::UpgradingToCity => handle_structure_click(StructureType::City, clickables, mouse_pos, state),
@@ -1100,6 +1209,15 @@ async fn main() {
             state.roll_dice(&mut rng);
             state.rolling_dice = false;
         }
+
+        if let Some(target) = state.stealing_from {
+            let maybe_card = state.get_player_mut(target).unwrap().hand.pop_random(&mut rng);
+            if let Some(card) = maybe_card {
+                state.get_current_player_mut().hand.add(ResHand::from(card));
+            }
+            state.stealing_from = None;
+        }
+
         if state.passing_turn {
             state.pass_turn();
             state.passing_turn = false;
