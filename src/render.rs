@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-use crate::{Action, Board, DVCard, DVHand, Hex, PlayerColor, Port, ResHand, Resource, StructureType, TurnState};
+use crate::{Action, Board, DVCard, DVHand, GameState, Hex, PlayerColor, Port, ResHand, Resource, StructureType};
 use crate::{BOARD_COORDS, PORT_COORDS, CORNER_COORDS, EDGE_COORDS, RESOURCES, DV_CARDS, DV_CARD_HAND, ROAD_HAND, SETTLEMENT_HAND, CITY_HAND};
 
 const SQRT_3: f32 = 1.732050807568877293527446341505872367_f32;
@@ -455,7 +455,7 @@ fn render_dv(pos: [f32; 2], width: f32, height: f32, dv: DVCard, count: usize) {
     render_count(pos, width, height, count);
 }
 
-fn render_hand(zone: Zone, hand: &ResHand, dvs: &DVHand) -> HandPoints {
+fn render_hand(zone: Zone, hand: &ResHand, dvs: &DVHand, new_dvs: &DVHand) -> HandPoints {
     let Zone { x, y, width, height } = zone;
     let scale = if 0.9 * height < width / 10.2 { 0.9 * height } else { width / 10.2 };
     let card_width = 0.7 * scale;
@@ -473,8 +473,8 @@ fn render_hand(zone: Zone, hand: &ResHand, dvs: &DVHand) -> HandPoints {
         }
     }
     for dv in DV_CARDS {
-        if dvs[dv] > 0 {
-            render_dv(cards[card_idx], card_width, card_height, dv, dvs[dv]);
+        if dvs[dv] + new_dvs[dv] > 0 {
+            render_dv(cards[card_idx], card_width, card_height, dv, dvs[dv] + new_dvs[dv]);
             if dv != DVCard::VictoryPoint {
                 num_cards += 1;
             }
@@ -506,14 +506,14 @@ fn get_buttons(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]
     buttons
 }
 
-fn get_clickable_buttons(board: &Board, hand: &ResHand, turn_state: &TurnState) -> [bool; 5] {
-    if turn_state.roll.is_some() {
-        match turn_state.action {
+fn get_clickable_buttons(board: &Board, hand: &ResHand, state: &GameState) -> [bool; 5] {
+    if state.roll.is_some() {
+        match state.action {
             Action::Idling => [
                 hand.can_disc(DV_CARD_HAND),
-                hand.can_disc(ROAD_HAND) && EDGE_COORDS.iter().any(|&[r, q, e]| board.can_place_road(r, q, e, turn_state.player)),
-                hand.can_disc(SETTLEMENT_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_place_settlement(r, q, c, turn_state.player)),
-                hand.can_disc(CITY_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_upgrade_to_city(r, q, c, turn_state.player)),
+                hand.can_disc(ROAD_HAND) && EDGE_COORDS.iter().any(|&[r, q, e]| board.can_place_road(r, q, e, state.get_current_color())),
+                hand.can_disc(SETTLEMENT_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_place_settlement(r, q, c, state.get_current_color())),
+                hand.can_disc(CITY_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_upgrade_to_city(r, q, c, state.get_current_color())),
                 true
             ],
             Action::BuildingRoad => [false, true, false, false, false],
@@ -540,12 +540,12 @@ fn render_button(pos: [f32; 2], size: f32, can_click: bool, label: &str) {
     draw_text(label, text_x, text_y, font_size, BLACK);
 }
 
-fn render_menu(zone: Zone, board: &Board, hand: &ResHand, turn_state: &TurnState) -> MenuPoints {
+fn render_menu(zone: Zone, board: &Board, hand: &ResHand, state: &GameState) -> MenuPoints {
     let Zone { x, y, width, height } = zone;
     let scale = if height < width / 5.0 {height} else {width / 5.0};
 
     let buttons = get_buttons(x, y, width, height, scale);
-    let can_click = get_clickable_buttons(board, hand, turn_state);
+    let can_click = get_clickable_buttons(board, hand, state);
     let labels = [
         "Devel",
         "Road",
@@ -591,12 +591,12 @@ fn render_die(pos: [f32; 2], size: f32, roll: Option<usize>) {
     draw_text(label.as_str(), text_x, text_y, font_size, BLACK);
 }
 
-fn render_dice(zone: Zone, turn_state: &TurnState) -> DicePoints {
+fn render_dice(zone: Zone, state: &GameState) -> DicePoints {
     let Zone { x, y, width, height } = zone;
     let scale = 0.8 * if width / 2.1 < height {width / 2.1} else {height};
 
     let dice = get_dice(x, y, width, height, scale);
-    let rolls = match turn_state.roll {
+    let rolls = match state.roll {
         Some([r1, r2]) => [Some(r1), Some(r2)],
         None => [None, None]
     };
@@ -610,9 +610,10 @@ fn render_dice(zone: Zone, turn_state: &TurnState) -> DicePoints {
     }
 }
 
-fn render_turn_view(zone: Zone, turn_state: &TurnState) {
+fn render_turn_view(zone: Zone, state: &GameState) {
     let Zone { x, y, width, height } = zone;
-    draw_rectangle(x, y, width, height, turn_state.player.into());
+    draw_rectangle(x, y, width, height, state.get_current_color().into());
+    draw_text(state.get_current_player().vps.to_string().as_str(), x, y + height, 40.0, BLACK);
 }
 
 fn render_discarding(hand: &ResHand) {
@@ -673,20 +674,26 @@ fn render_upgrading_to_city(corners: &[[f32; 2]; 54], board: &Board, player: Pla
     }
 }
 
-fn render_state_dependents(screen_width: f32, screen_height: f32, board_points: &BoardPoints, turn_state: &TurnState, board: &Board) {
+fn render_state_dependents(screen_width: f32, screen_height: f32, board_points: &BoardPoints, state: &GameState, board: &Board) {
     let BoardPoints { centers, corners, edges, board_scale } = board_points;
     let radius = 0.2 * board_scale;
-    match turn_state.action {
+    match state.action {
         Action::Idling => (),
         Action::Discarding(hand) => render_discarding(&hand),
         Action::MovingRobber => render_moving_robber(centers, board, radius),
-        Action::BuildingRoad => render_building_road(edges, board, turn_state.player, radius),
-        Action::BuildingSettlement => render_building_settlement(corners, board, turn_state.player, radius),
-        Action::UpgradingToCity => render_upgrading_to_city(corners, board, turn_state.player, radius)
+        Action::BuildingRoad => render_building_road(edges, board, state.get_current_color(), radius),
+        Action::BuildingSettlement => render_building_settlement(corners, board, state.get_current_color(), radius),
+        Action::UpgradingToCity => render_upgrading_to_city(corners, board, state.get_current_color(), radius)
     }
 }
 
-pub fn render_screen(board: &Board, hand: &ResHand, dvs: &DVHand, turn_state: &TurnState) -> ClickablePoints {
+pub fn render_screen(state: &GameState) -> ClickablePoints {
+    let board = &state.board;
+    let player = state.get_current_player();
+    let hand = &player.hand;
+    let dvs = &player.dvs;
+    let new_dvs = &player.new_dvs;
+
     let screen_width = screen_width();
     let screen_height = screen_height();
 
@@ -698,11 +705,11 @@ pub fn render_screen(board: &Board, hand: &ResHand, dvs: &DVHand, turn_state: &T
 
     clear_background(BLUE);
     let board_points = render_board(board_zone, board);
-    let hand_points = render_hand(hand_zone, hand, dvs);
-    let menu_points = render_menu(menu_zone, board, hand, turn_state);
-    let dice_points = render_dice(dice_zone, turn_state);
-    render_turn_view(turn_zone, turn_state);
-    render_state_dependents(screen_width, screen_height, &board_points, turn_state, board);
+    let hand_points = render_hand(hand_zone, hand, dvs, new_dvs);
+    let menu_points = render_menu(menu_zone, board, hand, state);
+    let dice_points = render_dice(dice_zone, state);
+    render_turn_view(turn_zone, state);
+    render_state_dependents(screen_width, screen_height, &board_points, state, board);
 
     ClickablePoints::new(board_points, hand_points, menu_points, dice_points)
 }
