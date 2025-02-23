@@ -520,9 +520,9 @@ fn get_clickable_buttons(board: &Board, hand: &ResHand, state: &GameState) -> [b
         match state.action {
             Action::Idling => [
                 hand.can_discard(DV_CARD_HAND),
-                hand.can_discard(ROAD_HAND) && EDGE_COORDS.iter().any(|&[r, q, e]| board.can_place_road(r, q, e, state.get_current_player().color)),
-                hand.can_discard(SETTLEMENT_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_place_settlement(r, q, c, state.get_current_player().color)),
-                hand.can_discard(CITY_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_upgrade_to_city(r, q, c, state.get_current_player().color)),
+                hand.can_discard(ROAD_HAND) && EDGE_COORDS.iter().any(|&edge| board.can_place_road(edge, state.get_current_player().get_color())),
+                hand.can_discard(SETTLEMENT_HAND) && CORNER_COORDS.iter().any(|&corner| board.can_place_settlement(corner, state.get_current_player().get_color())),
+                hand.can_discard(CITY_HAND) && CORNER_COORDS.iter().any(|&corner| board.can_upgrade_to_city(corner, state.get_current_player().get_color())),
                 true
             ],
             Action::BuildingRoad => [false, true, false, false, false],
@@ -621,11 +621,11 @@ fn render_dice(zone: Zone, state: &GameState) -> DicePoints {
 
 fn render_turn_view(zone: Zone, state: &GameState) {
     let Zone { x, y, width, height } = zone;
-    draw_rectangle(x, y, width, height, state.get_current_player().color.into());
-    draw_text(state.get_current_player().vps.to_string().as_str(), x, y + height, 40.0, BLACK);
+    draw_rectangle(x, y, width, height, state.get_current_player().get_color().into());
+    draw_text(state.get_current_player().get_vps().to_string().as_str(), x, y + height, 40.0, BLACK);
 }
 
-fn get_selected_cards(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
+fn get_selected_cards(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
     let shift = scale;
 
     let start_x = x + shift - 0.7 * scale;
@@ -638,7 +638,7 @@ fn get_selected_cards(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[
     cards
 }
 
-fn get_pool_cards(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
+fn get_pool_cards(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
     let shift = scale;
 
     let start_x = x + shift - 0.7 * scale;
@@ -651,7 +651,7 @@ fn get_pool_cards(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32;
     cards
 }
 
-fn get_selector_buttons(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
+fn get_selector_buttons(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
     let shift = scale;
 
     let start_x = x + shift - 0.7 * scale;
@@ -715,9 +715,9 @@ fn render_selector_base(zone: Zone, selected: &ResHand, pool: Option<&ResHand>) 
 }
 
 fn render_discarding(zone: Zone, state: &GameState) -> SelectorPoints {
-    let Zone { x, y, width, height } = zone;
+    let Zone { height, .. } = zone;
     let selected = state.discarding.as_ref().unwrap();
-    let (selector_buttons, size) = render_selector_base(zone, selected, Some(&state.get_current_player().hand));
+    let (selector_buttons, size) = render_selector_base(zone, selected, Some(&state.get_current_player().get_hand()));
     SelectorPoints {
         selector_buttons,
         selector_button_size: size,
@@ -747,8 +747,7 @@ fn render_building_road(edges: &[[f32; 2]; 72], board: &Board, player: PlayerCol
     let alpha = 192;
     for (_, pos) in edges.iter().copied().enumerate()
         .filter(|(idx, _)| {
-            let [r, q, e] = EDGE_COORDS[*idx];
-            board.can_place_road(r, q, e, player)
+            board.can_place_road(EDGE_COORDS[*idx], player)
         }
     ) {
         render_clickable(pos, radius, alpha);
@@ -759,8 +758,7 @@ fn render_building_settlement(corners: &[[f32; 2]; 54], board: &Board, player: P
     let alpha = 192;
     for (_, pos) in corners.iter().copied().enumerate()
         .filter(|(idx, _)| {
-            let [r, q, c] = CORNER_COORDS[*idx];
-            board.can_place_settlement(r, q, c, player)
+            board.can_place_settlement(CORNER_COORDS[*idx], player)
         }
     ) {
         render_clickable(pos, radius, alpha);
@@ -772,15 +770,14 @@ fn render_upgrading_to_city(corners: &[[f32; 2]; 54], board: &Board, player: Pla
     let alpha = 128;
     for (_, [x, y]) in corners.iter().copied().enumerate()
         .filter(|(idx, _)| {
-            let [r, q, c] = CORNER_COORDS[*idx];
-            board.can_upgrade_to_city(r, q, c, player)
+            board.can_upgrade_to_city(CORNER_COORDS[*idx], player)
         }
     ) {
         draw_circle(x, y, radius, DARKGRAY);
     }
 }
 
-fn render_state_dependents(screen_width: f32, screen_height: f32, board_points: &BoardPoints, state: &GameState, board: &Board, selector_zone: Zone) -> Option<SelectorPoints> {
+fn render_state_dependents(_screen_width: f32, _screen_height: f32, board_points: &BoardPoints, state: &GameState, board: &Board, selector_zone: Zone) -> Option<SelectorPoints> {
     let BoardPoints { centers, corners, edges, board_scale } = board_points;
     let radius = 0.2 * board_scale;
 
@@ -788,9 +785,9 @@ fn render_state_dependents(screen_width: f32, screen_height: f32, board_points: 
         Action::Idling => (),
         Action::Discarding => return Some(render_discarding(selector_zone, state)),
         Action::MovingRobber => render_moving_robber(centers, board, radius),
-        Action::BuildingRoad => render_building_road(edges, board, state.get_current_player().color, radius),
-        Action::BuildingSettlement => render_building_settlement(corners, board, state.get_current_player().color, radius),
-        Action::UpgradingToCity => render_upgrading_to_city(corners, board, state.get_current_player().color, radius)
+        Action::BuildingRoad => render_building_road(edges, board, state.get_current_player().get_color(), radius),
+        Action::BuildingSettlement => render_building_settlement(corners, board, state.get_current_player().get_color(), radius),
+        Action::UpgradingToCity => render_upgrading_to_city(corners, board, state.get_current_player().get_color(), radius)
     }
     return None;
 }
@@ -798,9 +795,9 @@ fn render_state_dependents(screen_width: f32, screen_height: f32, board_points: 
 pub fn render_screen(state: &GameState) -> ClickablePoints {
     let board = &state.board;
     let player = state.get_current_player();
-    let hand = &player.hand;
-    let dvs = &player.dvs;
-    let new_dvs = &player.new_dvs;
+    let hand = &player.get_hand();
+    let dvs = &player.get_dvs();
+    let new_dvs = &player.get_new_dvs();
 
     let screen_width = screen_width();
     let screen_height = screen_height();

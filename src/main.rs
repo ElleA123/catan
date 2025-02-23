@@ -77,40 +77,40 @@ impl GameState {
     }
 
     fn get_player(&self, color: PlayerColor) -> Option<&Player> {
-        self.players.iter().find(|player| player.color == color)
+        self.players.iter().find(|player| player.is_color(color))
     }
 
     fn get_player_mut(&mut self, color: PlayerColor) -> Option<&mut Player> {
-        self.players.iter_mut().find(|player| player.color == color)
+        self.players.iter_mut().find(|player| player.is_color(color))
     }
 
     fn handle_setup_settlement_click(&mut self, mouse_pos: (f32, f32), clickables: &ClickablePoints) -> Option<[usize; 3]> {
-        let color = self.get_current_player().color;
+        let color = self.get_current_player().get_color();
         let radius = 0.2 * clickables.board_scale;
         let maybe_idx = clickables.corners.iter().position(
             |pos| mouse_is_on_circle(mouse_pos, pos, radius)
         );
         if let Some(idx) = maybe_idx {
-            let [r, q, corner] = CORNER_COORDS[idx];
-            if self.board.can_place_setup_settlement(r, q, corner) {
-                self.board.place_settlement(r, q, corner, color);
-                self.get_current_player_mut().vps += 1;
-                return Some([r, q, corner]);
+            let corner = CORNER_COORDS[idx];
+            if self.board.can_place_setup_settlement(corner) {
+                self.board.place_settlement(corner, color);
+                self.get_current_player_mut().gain_vp();
+                return Some(corner);
             }
         }
         return None;
     }
 
     fn handle_setup_road_click(&mut self, settlement_coord: [usize; 3], mouse_pos: (f32, f32), clickables: &ClickablePoints) -> bool {
-        let color = self.get_current_player().color;
+        let color = self.get_current_player().get_color();
         let radius = 0.2 * clickables.board_scale;
         let maybe_idx = clickables.edges.iter().position(
             |pos| mouse_is_on_circle(mouse_pos, pos, radius)
         );
         if let Some(idx) = maybe_idx {
-            let [r, q, edge] = EDGE_COORDS[idx];
-            if self.board.can_place_setup_road(r, q, edge, settlement_coord) {
-                self.board.place_road(r, q, edge, color);
+            let edge = EDGE_COORDS[idx];
+            if self.board.can_place_setup_road(edge, settlement_coord) {
+                self.board.place_road(edge, color);
                 return true;
             }
         }
@@ -153,11 +153,12 @@ impl GameState {
                     else {
                         settlement_coord = self.handle_setup_settlement_click(mouse_pos, &clickables);
                         if let Some(coord) = settlement_coord {
-                            for [r, q] in hexes_touched(coord[0], coord[1], coord[2]) {
-                                if let Some(hex) = self.board.hexes[r][q] {
-                                    self.players[player].hand.add(ResHand::from(hex.resource));
-                                }
-                            }
+                            self.players[player].add_cards(self.board.get_starting_resources(coord));
+                            // for [r, q] in hexes_touched(coord[0], coord[1], coord[2]) {
+                            //     if let Some(hex) = self.board.hexes[r][q] {
+                            //         self.players[player].hand.add(ResHand::from(hex.resource));
+                            //     }
+                            // }
                         }
                     };
                 }
@@ -166,9 +167,9 @@ impl GameState {
         }
     }
 
-    async fn handle_seven(&mut self) {
+    async fn handle_seven<R: Rng + ?Sized>(&mut self, rng: &mut R) {
         for (player, _) in self.players.iter().enumerate()
-            .filter(|(_, p)| p.hand.size() > 7)
+            .filter(|(_, p)| p.must_discard())
         {
             self.current_player = player;
             self.action = Action::Discarding;
@@ -177,7 +178,7 @@ impl GameState {
             loop {
                 let clickables = render_screen(&self);
                 if macroquad::input::is_mouse_button_pressed(macroquad::input::MouseButton::Left) {
-                    handle_click(&clickables, self);
+                    handle_click(&clickables, self, rng);
                 }
                 macroquad::window::next_frame().await
             }
@@ -188,7 +189,7 @@ impl GameState {
         self.roll = Some([rng.random_range(1..=6), rng.random_range(1..=6)]);
         let sum = self.roll.unwrap()[0] + self.roll.unwrap()[1];
         if sum == 7 {
-            self.handle_seven().await
+            self.handle_seven(rng).await
         } else {
             self.board.give_resources(&mut self.players, sum);
         }
@@ -196,8 +197,7 @@ impl GameState {
 
     fn pass_turn(&mut self) {
         let player = self.get_current_player_mut();
-        player.dvs.add(player.new_dvs);
-        player.new_dvs.clear();
+        player.cycle_dvs();
         
         self.current_player = (self.current_player + 1) % self.num_players;
         self.action = Action::Idling;
@@ -207,7 +207,7 @@ impl GameState {
     }
 
     fn winner(&self) -> Option<PlayerColor> {
-        self.players.iter().find(|player| player.vps >= 10).map(|player| player.color)
+        self.players.iter().find(|player| player.has_won()).map(|player| player.get_color())
     }
 }
 
@@ -222,14 +222,14 @@ fn mouse_is_on_rect(mouse_pos: (f32, f32), pos: [f32; 2], width: f32, height: f3
 
 fn handle_knight(state: &mut GameState) {
     println!("handling knight");
-    state.get_current_player_mut().knights += 1;
-    if state.get_current_player().knights > state.largest_army_size {
-        let old_player = state.largest_army.replace(state.get_current_player().color);
-        state.largest_army_size = state.get_current_player().knights;
+    state.get_current_player_mut().play_dv_card(DVCard::Knight);
+    if state.get_current_player().get_knights() > state.largest_army_size {
+        let old_player = state.largest_army.replace(state.get_current_player().get_color());
+        state.largest_army_size = state.get_current_player().get_knights();
         if let Some(player) = old_player {
-            state.get_player_mut(player).unwrap().vps -= 2;
+            state.get_player_mut(player).unwrap().set_largest_army(false);
         }
-        state.get_current_player_mut().vps += 2;
+        state.get_current_player_mut().set_largest_army(true);
         if state.winner().is_some() {
             return
         }
@@ -250,7 +250,6 @@ fn handle_monopoly(state: &mut GameState) {
 }
 
 fn handle_dv_card(card: DVCard, state: &mut GameState) {
-    state.get_current_player_mut().dvs[card] -= 1;
     match card {
         DVCard::Knight => handle_knight(state),
         DVCard::RoadBuilding => handle_road_building(state),
@@ -260,18 +259,18 @@ fn handle_dv_card(card: DVCard, state: &mut GameState) {
     }
 }
 
-fn handle_idle_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), state: &mut GameState) {
+fn handle_idle_click<R: Rng + ?Sized>(clickables: &ClickablePoints, mouse_pos: (f32, f32), state: &mut GameState, rng: &mut R) {
     if clickables.dice.iter().any(|pos| mouse_is_on_rect(mouse_pos, *pos, clickables.dice_size, clickables.dice_size)) {
         state.rolling_dice = true;
     }
     else if let Some(id) = clickables.cards.iter().position(|pos| mouse_is_on_rect(mouse_pos, *pos, clickables.card_size[0], clickables.card_size[1])) {
         println!("{}th card clicked", id);
-        if id >= state.get_current_player().hand.count_nonzero() {
+        if id >= state.get_current_player().get_hand().count_nonzero() {
             println!("its a dv");
             let card = state.get_current_player().get_combined_dvs()
-                .nth_nonzero(id - state.get_current_player().hand.count_nonzero()).unwrap();
+                .nth_nonzero(id - state.get_current_player().get_hand().count_nonzero()).unwrap();
             println!("{:?}", card);
-            if state.get_current_player().dvs[card] > 0 {
+            if state.get_current_player().get_dvs()[card] > 0 {
                 handle_dv_card(card, state);
             }
         }
@@ -282,7 +281,7 @@ fn handle_idle_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), state:
             match id {
                 0 => {
                     if state.get_current_player_mut().can_buy_dv() {
-                        let card = state.board.draw_dv_card();
+                        let card = state.board.draw_dv_card(rng);
                         state.get_current_player_mut().buy_dv(card);
                     }
                 },
@@ -315,12 +314,16 @@ fn handle_discarding_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), 
 }
 
 fn handle_steal(state: &mut GameState) {
-    let opts = state.board.get_colors_on_hex(state.board.robber[0], state.board.robber[1]);
+    let opts = state.board.get_colors_on_hex(state.board.robber);
     if opts.len() == 0 {
         return;
     }
-    let target = if opts.len() == 1 {opts[0]} else {opts[0]}; // TODO
-    state.stealing_from = Some(target);
+    let target = if opts.len() == 1 {
+        opts.get(opts.iter().nth(0).unwrap()).unwrap()
+    } else {
+        opts.get(opts.iter().nth(0).unwrap()).unwrap() // TODO
+    };
+    state.stealing_from = Some(*target);
 }
 
 fn handle_robber_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), state: &mut GameState) {
@@ -344,15 +347,15 @@ fn handle_road_click(clickables: &ClickablePoints, mouse_pos: (f32, f32), state:
         return
     }
     let radius = 0.2 * clickables.board_scale;
-    let color = state.get_current_player().color;
+    let color = state.get_current_player().get_color();
     let maybe_idx = clickables.edges.iter().position(
         |pos| mouse_is_on_circle(mouse_pos, pos, radius)
     );
     if let Some(idx) = maybe_idx {
-        let [r, q, edge] = EDGE_COORDS[idx];
-        if state.board.can_place_road(r, q, edge, color) {
+        let edge = EDGE_COORDS[idx];
+        if state.board.can_place_road(edge, color) {
             state.get_current_player_mut().build_road();
-            state.board.place_road(r, q, edge, color);
+            state.board.place_road(edge, color);
             state.action = Action::Idling;
         }
     }
@@ -365,30 +368,30 @@ fn handle_structure_click(structure_type: StructureType, clickables: &ClickableP
         return
     }
     let radius = 0.2 * clickables.board_scale;
-    let color = state.get_current_player().color;
+    let color = state.get_current_player().get_color();
     let maybe_idx = clickables.corners.iter().position(
         |pos| mouse_is_on_circle(mouse_pos, pos, radius)
     );
     if let Some(idx) = maybe_idx {
-        let [r, q, corner] = CORNER_COORDS[idx];
+        let corner = CORNER_COORDS[idx];
         if structure_type == StructureType::Settlement
-        && state.board.can_place_settlement(r, q, corner, color) {
+        && state.board.can_place_settlement(corner, color) {
             state.get_current_player_mut().build_settlement();
-            state.board.place_settlement(r, q, corner, color);
+            state.board.place_settlement(corner, color);
             state.action = Action::Idling;
         }
-        else if state.board.can_upgrade_to_city(r, q, corner, color) {
+        else if state.board.can_upgrade_to_city(corner, color) {
             state.get_current_player_mut().upgrade_to_city();
-            state.board.upgrade_to_city(r, q, corner);
+            state.board.upgrade_to_city(corner, color);
             state.action = Action::Idling;
         }
     }
 }
 
-fn handle_click(clickables: &ClickablePoints, state: &mut GameState) {
+fn handle_click<R: Rng + ?Sized>(clickables: &ClickablePoints, state: &mut GameState, rng: &mut R) {
     let mouse_pos = macroquad::input::mouse_position();
     match state.action {
-        Action::Idling => handle_idle_click(clickables, mouse_pos, state),
+        Action::Idling => handle_idle_click(clickables, mouse_pos, state, rng),
         Action::Discarding => handle_discarding_click(clickables, mouse_pos, state),
         Action::MovingRobber => handle_robber_click(clickables, mouse_pos, state),
         Action::BuildingRoad => handle_road_click(clickables, mouse_pos, state),
@@ -414,9 +417,9 @@ async fn main() {
         }
 
         if let Some(target) = state.stealing_from {
-            let maybe_card = state.get_player_mut(target).unwrap().hand.pop_random(&mut rng);
+            let maybe_card = state.get_player_mut(target).unwrap().discard_random_card(&mut rng);
             if let Some(card) = maybe_card {
-                state.get_current_player_mut().hand.add(ResHand::from(card));
+                state.get_current_player_mut().add_cards(ResHand::from(card));
             }
             state.stealing_from = None;
         }
@@ -428,7 +431,7 @@ async fn main() {
 
         clickables = render_screen(&state);
         if macroquad::input::is_mouse_button_pressed(macroquad::input::MouseButton::Left) {
-            handle_click(&clickables, &mut state);
+            handle_click(&clickables, &mut state, &mut rng);
             if let Some(w) = state.winner() {
                 winner = w;
                 break;
