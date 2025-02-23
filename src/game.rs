@@ -1,11 +1,8 @@
 use std::{collections::HashSet, ops::{Index, IndexMut}};
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
 
-use crate::render::{render_screen, ClickablePoints};
-use crate::Player;
-
 //// Typedefs
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PlayerColor {
     Red=0,
     Blue=1,
@@ -457,7 +454,7 @@ impl Board {
                     for dir in [[0, -1], [-1, 0], [-1, 1]] {
                         let test_r = (r as isize + dir[0]) as usize;
                         let test_q = (q as isize + dir[1]) as usize;
-                        if is_on_board(test_r, test_q) {
+                        if is_on_board([test_r, test_q]) {
                             if let Some(h) = hexes[test_r][test_q] {
                                 if h.number == 6 || h.number == 8 {
                                     return Board::new(num_players, rng);
@@ -525,7 +522,7 @@ impl Board {
         //     }
         // }
         // colors;
-        (0..6).into_iter().filter_map(|c| self.structures[r][q][c]).collect()
+        (0..6).into_iter().filter_map(|c| self.structures[r][q][c].map(|s| s.color)).collect()
     }
 
     fn can_place_road(&self, edge: [usize; 3], color: PlayerColor) -> bool {
@@ -545,7 +542,7 @@ impl Board {
         let [r, q, e] = edge;
 
         self.roads[r][q][e].is_none()
-        && edge_corner_neighbors(edge).into_iter().any(
+        && edge_corner_neighbors(edge).any(
             |neighbor_corner| reduce_corner(neighbor_corner) == reduce_corner(settlement_coord)
         )
     }
@@ -621,8 +618,12 @@ impl Board {
         // new_cards
     }
 
+    fn can_draw_dv_card(&self) -> bool {
+        self.dv_bank.size() != 0
+    }
+
     fn draw_dv_card<R: Rng + ?Sized>(&mut self, rng: &mut R) -> DVCard {
-        self.dv_bank.discard_random(rng)
+        self.dv_bank.discard_random(rng).unwrap()
     }
 }
 
@@ -648,35 +649,36 @@ const DIRS: [[isize; 2]; 6] = [
     [0, -1]
 ];
 
-const fn is_on_board(r: usize, q: usize) -> bool {
+const fn is_on_board(hex: [usize; 2]) -> bool {
+    let [r, q] = hex;
     r < 5 && q < 5 && r + q >= 2 && r + q <= 6
 }
 
 const fn reduce_corner(corner: [usize; 3]) -> [usize; 3] {
     let [r, q, c] = corner;
     match c {
-        0 => if r != 0 && is_on_board(r - 1, q) {
+        0 => if r != 0 && is_on_board([r - 1, q]) {
             [r - 1, q, 2]
-        } else if r != 0 && is_on_board(r - 1, q + 1) {
+        } else if r != 0 && is_on_board([r - 1, q + 1]) {
             [r - 1, q + 1, 4]
         } else {
             [r, q, 0]
         },
-        1 => if r != 0 && is_on_board(r - 1, q + 1) {
+        1 => if r != 0 && is_on_board([r - 1, q + 1]) {
             [r - 1, q + 1, 3]
         } else {
             [r, q, 1]
         },
         2 => [r, q, 2],
         3 => [r, q, 3],
-        4 => if q != 0 && is_on_board(r, q - 1) {
+        4 => if q != 0 && is_on_board([r, q - 1]) {
             [r, q - 1, 2]
         } else {
             [r, q, 4]
         },
-        5 => if r != 0 && is_on_board(r - 1, q) {
+        5 => if r != 0 && is_on_board([r - 1, q]) {
             [r - 1, q, 3]
-        } else if q != 0 && is_on_board(r, q - 1) {
+        } else if q != 0 && is_on_board([r, q - 1]) {
             [r, q - 1, 1]
         } else {
             [r, q, 5]
@@ -688,12 +690,12 @@ const fn reduce_corner(corner: [usize; 3]) -> [usize; 3] {
 const fn reduce_edge(edge: [usize; 3]) -> [usize; 3] {
     let [r, q, e] = edge;
     match e {
-        0 => if r != 0 && is_on_board(r - 1, q) {
+        0 => if r != 0 && is_on_board([r - 1, q]) {
             [r - 1, q, 3]
         } else {
             [r, q, 0]
         },
-        1 => if r != 0 && is_on_board(r - 1, q + 1) {
+        1 => if r != 0 && is_on_board([r - 1, q + 1]) {
             [r - 1, q + 1, 4]
         } else {
             [r, q, 1]
@@ -701,7 +703,7 @@ const fn reduce_edge(edge: [usize; 3]) -> [usize; 3] {
         2 => [r, q, 2],
         3 => [r, q, 3],
         4 => [r, q, 4],
-        5 => if q != 0 && is_on_board(r, q - 1) {
+        5 => if q != 0 && is_on_board([r, q - 1]) {
             [r, q - 1, 2]
         } else {
             [r, q, 5]
@@ -715,11 +717,11 @@ fn hexes_touched(corner: [usize; 3]) -> impl Iterator<Item = [usize; 2]> {
     let mut neighbors = vec![[r, q]];
 
     let neighbor1 = [(r as isize + DIRS[c][0]) as usize, (q as isize + DIRS[c][1]) as usize];
-    if is_on_board(neighbor1[0], neighbor1[1]) {
+    if is_on_board(neighbor1) {
         neighbors.push(neighbor1);
     }
     let neighbor2 = [(r as isize + DIRS[(c + 1) % 6][0]) as usize, (q as isize + DIRS[(c + 1) % 6][1]) as usize];
-    if is_on_board(neighbor2[0], neighbor2[1]) {
+    if is_on_board(neighbor2) {
         neighbors.push(neighbor2);
     }
     neighbors.into_iter()
@@ -729,11 +731,11 @@ fn get_dup_corners(corner: [usize; 3]) -> impl Iterator<Item = [usize; 3]> {
     let [r, q, c] = corner;
     let mut dups = vec![[r, q, c]];
     let neighbor1 = [(r as isize + DIRS[c][0]) as usize, (q as isize + DIRS[c][1]) as usize];
-    if is_on_board(neighbor1[0], neighbor1[1]) {
+    if is_on_board(neighbor1) {
         dups.push([neighbor1[0], neighbor1[1], (c + 2) % 6]);
     }
     let neighbor2 = [(r as isize + DIRS[(c + 1) % 6][0]) as usize, (q as isize + DIRS[(c + 1) % 6][1]) as usize];
-    if is_on_board(neighbor2[0], neighbor2[1]) {
+    if is_on_board(neighbor2) {
         dups.push([neighbor2[0], neighbor2[1], (c + 4) % 6]);
     }
     dups.into_iter()
@@ -743,7 +745,7 @@ fn get_dup_edges(edge: [usize; 3]) -> impl Iterator<Item = [usize; 3]> {
     let [r, q, e] = edge;
     let mut dups = vec![[r, q, e]];
     let neighbor = [(r as isize + DIRS[e][0]) as usize, (q as isize + DIRS[e][1]) as usize];
-    if is_on_board(neighbor[0], neighbor[1]) {
+    if is_on_board(neighbor) {
         dups.push([neighbor[0], neighbor[1], (e + 3) % 6]);
     }
     dups.into_iter()
@@ -755,9 +757,9 @@ fn corner_corner_neighbors(corner: [usize; 3]) -> impl Iterator<Item = [usize; 3
 
     let hex_neighbor1 = [(r as isize + DIRS[c][0]) as usize, (q as isize + DIRS[c][1]) as usize];
     let hex_neighbor2 = [(r as isize + DIRS[(c + 1) % 6][0]) as usize, (q as isize + DIRS[(c + 1) % 6][1]) as usize];
-    if is_on_board(hex_neighbor1[0], hex_neighbor1[1]) {
+    if is_on_board(hex_neighbor1) {
         neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (c + 1) % 6]);
-    } else if is_on_board(hex_neighbor2[0], hex_neighbor2[1]) {
+    } else if is_on_board(hex_neighbor2) {
         neighbors.push([hex_neighbor2[0], hex_neighbor2[1], (c + 5) % 6]);
     }
     neighbors.into_iter()
@@ -769,15 +771,15 @@ fn edge_edge_neighbors(edge: [usize; 3]) -> impl Iterator<Item = [usize; 3]> {
     let full_neighbor = [(r as isize + DIRS[e][0]) as usize, (q as isize + DIRS[e][1]) as usize];
     let half_neighbor_l = [(r as isize + DIRS[(e + 5) % 6][0]) as usize, (q as isize + DIRS[(e + 5) % 6][1]) as usize];
     let half_neighbor_r = [(r as isize + DIRS[(e + 1) % 6][0]) as usize, (q as isize + DIRS[(e + 1) % 6][1]) as usize];
-    if is_on_board(full_neighbor[0], full_neighbor[1]) {
+    if is_on_board(full_neighbor) {
         neighbors.push([full_neighbor[0], full_neighbor[1], (e + 2) % 6]);
         neighbors.push([full_neighbor[0], full_neighbor[1], (e + 4) % 6]);
     }
     else {
-        if is_on_board(half_neighbor_l[0], half_neighbor_l[1]) {
+        if is_on_board(half_neighbor_l) {
             neighbors.push([half_neighbor_l[0], half_neighbor_l[1], (e + 1) % 6]);
         }
-        if is_on_board(half_neighbor_r[0], half_neighbor_r[1]) {
+        if is_on_board(half_neighbor_r) {
             neighbors.push([half_neighbor_r[0], half_neighbor_r[1], (e + 5) % 6]);
         }
     }
@@ -790,23 +792,96 @@ fn corner_edge_neighbors(corner: [usize; 3]) -> impl Iterator<Item = [usize; 3]>
 
     let hex_neighbor1 = [(r as isize + DIRS[c][0]) as usize, (q as isize + DIRS[c][1]) as usize];
     let hex_neighbor2 = [(r as isize + DIRS[(c + 1) % 6][0]) as usize, (q as isize + DIRS[(c + 1) % 6][1]) as usize];
-    if is_on_board(hex_neighbor1[0], hex_neighbor1[1]) {
+    if is_on_board(hex_neighbor1) {
         neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (c + 2) % 6]);
-    } else if is_on_board(hex_neighbor2[0], hex_neighbor2[1]) {
+    } else if is_on_board(hex_neighbor2) {
         neighbors.push([hex_neighbor2[0], hex_neighbor2[1], (c + 5) % 6]);
     }
     neighbors.into_iter()
 }
 
-fn edge_corner_neighbors(edge: [usize; 3]) -> [[usize; 3]; 2] {
+fn edge_corner_neighbors(edge: [usize; 3]) -> impl Iterator<Item = [usize; 3]> {
     let [r, q, e] = edge;
-    [[r, q, e], [r, q, (e + 5) % 6]]
+    [[r, q, e], [r, q, (e + 5) % 6]].into_iter()
 }
 
 fn intersecting_corner(edge1: [usize; 3], edge2: [usize; 3]) -> Option<[usize; 3]> {
-    edge_corner_neighbors(edge1).into_iter()
+    edge_corner_neighbors(edge1)
     .flat_map(|neighbor_corner| get_dup_corners(neighbor_corner))
     .find(|&c1|
-        edge_corner_neighbors(edge2).into_iter().any(|c2| c1 == c2)
+        edge_corner_neighbors(edge2).any(|c2| c1 == c2)
     )
+}
+
+pub struct Player {
+    color: PlayerColor,
+    is_human: bool,
+    vps: usize,
+    hand: ResHand,
+    dvs: DVHand,
+    new_dvs: DVHand,
+    knights: usize,
+    road_len: usize,
+    road_pool: usize,
+    settlement_pool: usize,
+    city_pool: usize,
+}
+
+impl Player {
+    fn new(color: PlayerColor) -> Player {
+        Player {
+            color,
+            is_human: true,
+            vps: 0,
+            hand: ResHand::new(),
+            dvs: DVHand::new(),
+            new_dvs: DVHand::new(),
+            knights: 0,
+            road_len: 0,
+            road_pool: 15,
+            settlement_pool: 5,
+            city_pool: 4,
+        }
+    }
+
+    fn get_combined_dvs(&self) -> DVHand {
+        let mut combined = self.dvs;
+        combined.add(self.new_dvs);
+        combined
+    }
+
+    fn can_buy_dv(&self) -> bool {
+        self.hand.can_discard(DV_CARD_HAND)
+    }
+
+    fn buy_dv(&mut self, dv: DVCard) {
+        self.hand.discard(DV_CARD_HAND);
+        self.new_dvs[dv] += 1;
+    }
+
+    fn can_build_road(&self) -> bool {
+        self.hand.can_discard(ROAD_HAND)
+    }
+
+    fn build_road(&mut self) {
+        self.hand.discard(ROAD_HAND);
+    }
+
+    fn can_build_settlement(&self) -> bool {
+        self.hand.can_discard(SETTLEMENT_HAND)
+    }
+
+    fn build_settlement(&mut self) {
+        self.hand.discard(SETTLEMENT_HAND);
+        self.vps += 1;
+    }
+
+    fn can_upgrade_to_city(&self) -> bool {
+        self.hand.can_discard(CITY_HAND)
+    }
+
+    fn upgrade_to_city(&mut self) {
+        self.hand.discard(CITY_HAND);
+        self.vps += 1;
+    }
 }

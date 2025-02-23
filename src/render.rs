@@ -519,10 +519,10 @@ fn get_clickable_buttons(board: &Board, hand: &ResHand, state: &GameState) -> [b
     if state.roll.is_some() {
         match state.action {
             Action::Idling => [
-                hand.can_disc(DV_CARD_HAND),
-                hand.can_disc(ROAD_HAND) && EDGE_COORDS.iter().any(|&[r, q, e]| board.can_place_road(r, q, e, state.get_current_player().color)),
-                hand.can_disc(SETTLEMENT_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_place_settlement(r, q, c, state.get_current_player().color)),
-                hand.can_disc(CITY_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_upgrade_to_city(r, q, c, state.get_current_player().color)),
+                hand.can_discard(DV_CARD_HAND),
+                hand.can_discard(ROAD_HAND) && EDGE_COORDS.iter().any(|&[r, q, e]| board.can_place_road(r, q, e, state.get_current_player().color)),
+                hand.can_discard(SETTLEMENT_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_place_settlement(r, q, c, state.get_current_player().color)),
+                hand.can_discard(CITY_HAND) && CORNER_COORDS.iter().any(|&[r, q, c]| board.can_upgrade_to_city(r, q, c, state.get_current_player().color)),
                 true
             ],
             Action::BuildingRoad => [false, true, false, false, false],

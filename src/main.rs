@@ -1,78 +1,11 @@
+use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
+
 pub mod game;
 pub mod render;
 
-struct Player {
-    color: PlayerColor,
-    is_human: bool,
-    vps: usize,
-    hand: ResHand,
-    dvs: DVHand,
-    new_dvs: DVHand,
-    knights: usize,
-    road_len: usize,
-    road_pool: usize,
-    settlement_pool: usize,
-    city_pool: usize,
-}
+use crate::game::*;
+use crate::render::*;
 
-impl Player {
-    fn new(color: PlayerColor) -> Player {
-        Player {
-            color,
-            is_human: true,
-            vps: 0,
-            hand: ResHand::new(),
-            dvs: DVHand::new(),
-            new_dvs: DVHand::new(),
-            knights: 0,
-            road_len: 0,
-            road_pool: 15,
-            settlement_pool: 5,
-            city_pool: 4,
-        }
-    }
-
-    fn get_combined_dvs(&self) -> DVHand {
-        let mut combined = self.dvs;
-        combined.add(self.new_dvs);
-        combined
-    }
-
-    fn can_buy_dv(&self) -> bool {
-        self.hand.can_disc(DV_CARD_HAND)
-    }
-
-    fn buy_dv(&mut self, dv: DVCard) {
-        self.hand.discard(DV_CARD_HAND);
-        self.new_dvs[dv] += 1;
-    }
-
-    fn can_build_road(&self) -> bool {
-        self.hand.can_disc(ROAD_HAND)
-    }
-
-    fn build_road(&mut self) {
-        self.hand.discard(ROAD_HAND);
-    }
-
-    fn can_build_settlement(&self) -> bool {
-        self.hand.can_disc(SETTLEMENT_HAND)
-    }
-
-    fn build_settlement(&mut self) {
-        self.hand.discard(SETTLEMENT_HAND);
-        self.vps += 1;
-    }
-
-    fn can_upgrade_to_city(&self) -> bool {
-        self.hand.can_disc(CITY_HAND)
-    }
-
-    fn upgrade_to_city(&mut self) {
-        self.hand.discard(CITY_HAND);
-        self.vps += 1;
-    }
-}
 
 enum Action {
     Idling,
@@ -274,7 +207,7 @@ impl GameState {
     }
 
     fn winner(&self) -> Option<PlayerColor> {
-        self.players.iter().find(|player| player.vps >= 10).and_then(|player| Some(player.color))
+        self.players.iter().find(|player| player.vps >= 10).map(|player| player.color)
     }
 }
 
