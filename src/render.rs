@@ -48,6 +48,13 @@ struct DicePoints {
     dice_size: f32,
 }
 
+struct SelectorPoints {
+    selector_buttons: [[f32; 2]; 10],
+    selector_button_size: f32,
+    conf_buttons: Vec<[f32; 2]>,
+    conf_button_size: f32
+}
+
 pub struct ClickablePoints {
     pub centers: [[f32; 2]; 19],
     pub corners: [[f32; 2]; 54],
@@ -417,7 +424,7 @@ fn get_cards(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2];
     cards
 }
 
-fn render_count(pos: [f32; 2], _width: f32, height: f32, count: usize) {
+fn render_count(pos: [f32; 2], _width: f32, height: f32, count: &str) {
     let size = height / 3.0;
     let thickness = height / 20.0;
     let font_size = height / 3.0;
@@ -427,10 +434,12 @@ fn render_count(pos: [f32; 2], _width: f32, height: f32, count: usize) {
     let text_y = y + 0.25 * height;
     draw_rectangle(x, y, size, size, WHITE);
     draw_rectangle_lines(x, y, size, size, thickness, BLACK);
-    draw_text(count.to_string().as_str(), text_x, text_y, font_size, BLACK);
+    draw_text(count, text_x, text_y, font_size, BLACK);
 }
 
-fn render_resource(pos: [f32; 2], width: f32, height: f32, resource: Resource, count: usize) {
+fn render_resource(pos: [f32; 2], resource: Resource, count: &str, scale: f32) {
+    let width = 0.7 * scale;
+    let height = scale;
     let thickness = height / 20.0;
 
     let [x, y] = pos;
@@ -441,7 +450,7 @@ fn render_resource(pos: [f32; 2], width: f32, height: f32, resource: Resource, c
     render_count(pos, width, height, count);
 }
 
-fn render_dv(pos: [f32; 2], width: f32, height: f32, dv: DVCard, count: usize) {
+fn render_dv(pos: [f32; 2], width: f32, height: f32, dv: DVCard, count: &str) {
     let thickness = height / 20.0;
     let font_size = height / 3.0;
 
@@ -467,14 +476,14 @@ fn render_hand(zone: Zone, hand: &ResHand, dvs: &DVHand, new_dvs: &DVHand) -> Ha
     draw_rectangle(x, y, width, height, BEIGE);
     for res in RESOURCES {
         if hand[res] > 0 {
-            render_resource(cards[card_idx], card_width, card_height, res, hand[res]);
+            render_resource(cards[card_idx], res, hand[res].to_string().as_str(), scale);
             num_cards += 1;
             card_idx += 1;
         }
     }
     for dv in DV_CARDS {
         if dvs[dv] + new_dvs[dv] > 0 {
-            render_dv(cards[card_idx], card_width, card_height, dv, dvs[dv] + new_dvs[dv]);
+            render_dv(cards[card_idx], card_width, card_height, dv, (dvs[dv] + new_dvs[dv]).to_string().as_str());
             if dv != DVCard::VictoryPoint {
                 num_cards += 1;
             }
@@ -616,8 +625,105 @@ fn render_turn_view(zone: Zone, state: &GameState) {
     draw_text(state.get_current_player().vps.to_string().as_str(), x, y + height, 40.0, BLACK);
 }
 
-fn render_discarding(hand: &ResHand) {
+fn get_selected_cards(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
+    let shift = scale;
 
+    let start_x = x + shift - 0.7 * scale;
+    let y = y + 0.25 * height - 0.5 * scale;
+    
+    let mut cards = [[0.0, y]; 5];
+    for i in 0..cards.len() {
+        cards[i] = [start_x + i as f32 * shift, y];
+    }
+    cards
+}
+
+fn get_pool_cards(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
+    let shift = scale;
+
+    let start_x = x + shift - 0.7 * scale;
+    let y = y + 0.75 * height - 0.5 * scale;
+    
+    let mut cards = [[0.0, y]; 5];
+    for i in 0..cards.len() {
+        cards[i] = [start_x + i as f32 * shift, y];
+    }
+    cards
+}
+
+fn get_selector_buttons(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
+    let shift = scale;
+
+    let start_x = x + shift - 0.7 * scale;
+    let y = y + 0.9 * height - 0.5 * 0.7 * scale;
+    
+    let mut cards = [[0.0, y]; 5];
+    for i in 0..cards.len() {
+        cards[i] = [start_x + i as f32 * shift, y];
+    }
+    cards
+}
+
+fn render_selector_button(pos: [f32; 2], size: f32) {
+    let thickness = size / 20.0;
+    let [x, y] = pos;
+    draw_rectangle(x, y, size, size, WHITE);
+    draw_rectangle_lines(x, y, size, size, thickness, BLACK);
+    draw_text("v", x + 0.4 * size, y + 0.6 * size, size, BLACK);
+}
+
+fn render_selector_base(zone: Zone, selected: &ResHand, pool: Option<&ResHand>) -> ([[f32; 2]; 10], f32) {
+    let Zone { x, y, width, height } = zone;
+    let scale = 0.3 * height;
+    let button_size = 0.7 * scale;
+    let selected_cards = get_selected_cards(x, y, width, height, scale);
+    let pool_cards = get_pool_cards(x, y, width, height, scale);
+    let buttons = get_selector_buttons(x, y, width, height, scale);
+
+    draw_rectangle(x, y, width, height, BEIGE);
+    for resource in RESOURCES {
+        if selected[resource] > 0 {
+            render_resource(selected_cards[resource as usize], resource, selected[resource].to_string().as_str(), scale);
+        }
+    }
+
+    if let Some(pool) = pool {
+        for resource in RESOURCES {
+            let remaining = pool[resource] - selected[resource];
+            render_resource(pool_cards[resource as usize], resource, remaining.to_string().as_str(), scale);
+        }
+    } else {
+        for resource in RESOURCES {
+            render_resource(pool_cards[resource as usize], resource, "∞", scale);
+        }
+    }
+
+    for resource in RESOURCES {
+        if selected[resource] > 0 {
+            render_selector_button(buttons[resource as usize], button_size);
+        }
+    }
+
+    let mut clickables = [[0.0; 2]; 10];
+    for i in 0..5 {
+        clickables[i] = pool_cards[i];
+    }
+    for i in 5..10 {
+        clickables[i] = buttons[i];
+    }
+    (clickables, button_size)
+}
+
+fn render_discarding(zone: Zone, state: &GameState) -> SelectorPoints {
+    let Zone { x, y, width, height } = zone;
+    let selected = state.discarding.as_ref().unwrap();
+    let (selector_buttons, size) = render_selector_base(zone, selected, Some(&state.get_current_player().hand));
+    SelectorPoints {
+        selector_buttons,
+        selector_button_size: size,
+        conf_buttons: Vec::new(),
+        conf_button_size: 0.25 * height
+    }
 }
 
 fn render_clickable(pos: [f32; 2], radius: f32, alpha: u8) {
@@ -674,17 +780,19 @@ fn render_upgrading_to_city(corners: &[[f32; 2]; 54], board: &Board, player: Pla
     }
 }
 
-fn render_state_dependents(screen_width: f32, screen_height: f32, board_points: &BoardPoints, state: &GameState, board: &Board) {
+fn render_state_dependents(screen_width: f32, screen_height: f32, board_points: &BoardPoints, state: &GameState, board: &Board, selector_zone: Zone) -> Option<SelectorPoints> {
     let BoardPoints { centers, corners, edges, board_scale } = board_points;
     let radius = 0.2 * board_scale;
+
     match state.action {
         Action::Idling => (),
-        Action::Discarding(hand) => render_discarding(&hand),
+        Action::Discarding => return Some(render_discarding(selector_zone, state)),
         Action::MovingRobber => render_moving_robber(centers, board, radius),
         Action::BuildingRoad => render_building_road(edges, board, state.get_current_player().color, radius),
         Action::BuildingSettlement => render_building_settlement(corners, board, state.get_current_player().color, radius),
         Action::UpgradingToCity => render_upgrading_to_city(corners, board, state.get_current_player().color, radius)
     }
+    return None;
 }
 
 pub fn render_screen(state: &GameState) -> ClickablePoints {
@@ -702,6 +810,7 @@ pub fn render_screen(state: &GameState) -> ClickablePoints {
     let menu_zone = Zone::new(screen_width, screen_height, 0.6, 0.85, 0.4, 0.15);
     let dice_zone = Zone::new(screen_width, screen_height, 0.8, 0.70, 0.2, 0.15);
     let turn_zone = Zone::new(screen_width, screen_height, 0.0, 0.0, 0.2, 0.1);
+    let selector_zone = Zone::new(screen_width, screen_height, 0.0, 0.50, 0.30, 0.35);
 
     clear_background(BLUE);
     let board_points = render_board(board_zone, board);
@@ -709,7 +818,7 @@ pub fn render_screen(state: &GameState) -> ClickablePoints {
     let menu_points = render_menu(menu_zone, board, hand, state);
     let dice_points = render_dice(dice_zone, state);
     render_turn_view(turn_zone, state);
-    render_state_dependents(screen_width, screen_height, &board_points, state, board);
+    render_state_dependents(screen_width, screen_height, &board_points, state, board, selector_zone);
 
     ClickablePoints::new(board_points, hand_points, menu_points, dice_points)
 }
