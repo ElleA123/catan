@@ -1,4 +1,4 @@
-use std::ops::{Index, IndexMut};
+use std::{collections::HashSet, ops::{Index, IndexMut}};
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
 
 use crate::render::{render_screen, ClickablePoints};
@@ -371,14 +371,14 @@ const fn corner_coords() -> [[usize; 3]; 54] {
     let mut hex = 0;
     while hex < BOARD_COORDS.len() {
         let [r, q] = BOARD_COORDS[hex];
-        let mut corner = 0;
-        while corner < 6 {
-            let [r_, q_, corner_] = reduce_corner(r, q, corner);
-            if r == r_ && q == q_ && corner == corner_ {
-                corners[idx] = [r, q, corner];
+        let mut c = 0;
+        while c < 6 {
+            let [r_, q_, c_] = reduce_corner([r, q, c]);
+            if r == r_ && q == q_ && c == c_ {
+                corners[idx] = [r, q, c];
                 idx += 1;
             }
-            corner += 1;
+            c += 1;
         } 
         hex += 1;
     }
@@ -392,14 +392,14 @@ const fn edge_coords() -> [[usize; 3]; 72] {
     let mut hex = 0;
     while hex < BOARD_COORDS.len() {
         let [r, q] = BOARD_COORDS[hex];
-        let mut edge = 0;
-        while edge < 6 {
-            let [r_, q_, edge_] = reduce_edge(r, q, edge);
-            if r == r_ && q == q_ && edge == edge_ {
-                edges[idx] = [r, q, edge];
+        let mut e = 0;
+        while e < 6 {
+            let [r_, q_, e_] = reduce_edge([r, q, e]);
+            if r == r_ && q == q_ && e == e_ {
+                edges[idx] = [r, q, e];
                 idx += 1;
             }
-            edge += 1;
+            e += 1;
         } 
         hex += 1;
     }
@@ -490,80 +490,93 @@ impl Board {
         }
     }
 
-    fn road_is_color(&self, r: usize, q: usize, edge: usize, color: PlayerColor) -> bool {
-        match self.roads[r][q][edge] {
+    fn road_is_color(&self, edge: [usize; 3], color: PlayerColor) -> bool {
+        let [r, q, e] = edge;
+        match self.roads[r][q][e] {
             Some(c) => c == color,
             None => false
         }
     }
 
-    fn structure_is_color(&self, r: usize, q: usize, corner: usize, color: PlayerColor) -> bool {
-        match self.structures[r][q][corner] {
-            Some(c) => c.color == color,
+    fn structure_is_color(&self, corner: [usize; 3], color: PlayerColor) -> bool {
+        let [r, q, c] = corner;
+        match self.structures[r][q][c] {
+            Some(structure) => structure.color == color,
             None => false
         }
     }
 
-    fn structure_isnt_color(&self, r: usize, q: usize, corner: usize, color: PlayerColor) -> bool {
-        match self.structures[r][q][corner] {
+    fn structure_isnt_color(&self, corner: [usize; 3], color: PlayerColor) -> bool {
+        let [r, q, c] = corner;
+        match self.structures[r][q][c] {
             Some(c) => c.color != color,
             None => false
         }
     }
 
-    fn get_colors_on_hex(&self, r: usize, q: usize) -> Vec<PlayerColor> {
-        let mut colors = Vec::with_capacity(self.num_players);
-        for corner in 0..6 {
-            if let Some(s) = self.structures[r][q][corner] {
-                if !colors.contains(&s.color) {
-                    colors.push(s.color);
-                }
-            }
-        }
-        colors
+    fn get_colors_on_hex(&self, hex: [usize; 2]) -> HashSet<PlayerColor> {
+        let [r, q] = hex;
+        // let mut colors = Vec::with_capacity(self.num_players);
+        // for corner in 0..6 {
+        //     if let Some(s) = self.structures[r][q][corner] {
+        //         if !colors.contains(&s.color) {
+        //             colors.push(s.color);
+        //         }
+        //     }
+        // }
+        // colors;
+        (0..6).into_iter().filter_map(|c| self.structures[r][q][c]).collect()
     }
 
-    fn can_place_road(&self, r: usize, q: usize, edge: usize, color: PlayerColor) -> bool {
-        self.roads[r][q][edge].is_none()
+    fn can_place_road(&self, edge: [usize; 3], color: PlayerColor) -> bool {
+        let [r, q, e] = edge;
+
+        self.roads[r][q][e].is_none()
         && (
-            edge_corner_neighbors(r, q, edge).into_iter().any(|[r_, q_, c_]| self.structure_is_color(r_, q_, c_, color))
-            || edge_edge_neighbors(r, q, edge).any(|[r_, q_, e_]| {
-                let [r_int, q_int, c_int] = intersecting_corner([r, q, edge], [r_, q_, e_]).unwrap();
-                self.road_is_color(r_, q_, e_, color) && !self.structure_isnt_color(r_int, q_int, c_int, color)
+            edge_corner_neighbors(edge).any(|corner| self.structure_is_color(corner, color))
+            || edge_edge_neighbors(edge).any(|neighbor_edge| {
+                let int_corner = intersecting_corner(edge, neighbor_edge).unwrap();
+                self.road_is_color(neighbor_edge, color) && !self.structure_isnt_color(int_corner, color)
             })
         )
     }
 
-    fn can_place_setup_road(&self, r: usize, q: usize, edge: usize, settlement_coord: [usize; 3]) -> bool {
-        self.roads[r][q][edge].is_none()
-        && edge_corner_neighbors(r, q, edge).into_iter().any(|coord|
-            reduce_corner(coord[0], coord[1], coord[2]) == reduce_corner(settlement_coord[0], settlement_coord[1], settlement_coord[2])
+    fn can_place_setup_road(&self, edge: [usize; 3], settlement_coord: [usize; 3]) -> bool {
+        let [r, q, e] = edge;
+
+        self.roads[r][q][e].is_none()
+        && edge_corner_neighbors(edge).into_iter().any(
+            |neighbor_corner| reduce_corner(neighbor_corner) == reduce_corner(settlement_coord)
         )
     }
 
-    fn place_road(&mut self, r: usize, q: usize, edge: usize, color: PlayerColor) {
-        for [r, q, e] in get_dup_edges(r, q, edge) {
+    fn place_road(&mut self, edge: [usize; 3], color: PlayerColor) {
+        for [r, q, e] in get_dup_edges(edge) {
             self.roads[r][q][e] = Some(color);
         }
     }
 
-    fn can_place_settlement(&self, r: usize, q: usize, corner: usize, color: PlayerColor) -> bool {
-        self.structures[r][q][corner].is_none()
-        && corner_corner_neighbors(r, q, corner).all(
+    fn can_place_settlement(&self, corner: [usize; 3], color: PlayerColor) -> bool {
+        let [r, q, c] = corner;
+
+        self.structures[r][q][c].is_none()
+        && corner_corner_neighbors(corner).all(
             |[r_, q_, c_]| self.structures[r_][q_][c_].is_none()
         )
-        && corner_edge_neighbors(r, q, corner).any(|[r_, q_, e_]| self.road_is_color(r_, q_, e_, color))
+        && corner_edge_neighbors(corner).any(|neighbor_edge| self.road_is_color(neighbor_edge, color))
     }
 
-    fn can_place_setup_settlement(&self, r: usize, q: usize, corner: usize) -> bool {
-        self.structures[r][q][corner].is_none()
-        && corner_corner_neighbors(r, q, corner).all(
+    fn can_place_setup_settlement(&self, corner: [usize; 3]) -> bool {
+        let [r, q, c] = corner;
+
+        self.structures[r][q][c].is_none()
+        && corner_corner_neighbors(corner).all(
             |[r_, q_, c_]| self.structures[r_][q_][c_].is_none()
         )
     }
 
-    fn place_settlement(&mut self, r: usize, q: usize, corner: usize, color: PlayerColor) {
-        for [r, q, c] in get_dup_corners(r, q, corner) {
+    fn place_settlement(&mut self, corner: [usize; 3], color: PlayerColor) {
+        for [r, q, c] in get_dup_corners(corner) {
             self.structures[r][q][c] = Some(Structure {
                 structure_type: StructureType::Settlement,
                 color
@@ -571,14 +584,14 @@ impl Board {
         }
     }
 
-    fn can_upgrade_to_city(&self, r: usize, q: usize, corner: usize, color: PlayerColor) -> bool {
-        self.structure_is_color(r, q, corner, color)
-        && self.structures[r][q][corner].unwrap().structure_type == StructureType::Settlement
+    fn can_upgrade_to_city(&self, corner: [usize; 3], color: PlayerColor) -> bool {
+        let [r, q, c] = corner;
+        self.structure_is_color(corner, color)
+        && self.structures[r][q][c].unwrap().structure_type == StructureType::Settlement
     }
 
-    fn upgrade_to_city(&mut self, r: usize, q: usize, corner: usize) {
-        let color = self.structures[r][q][corner].unwrap().color;
-        for [r, q, c] in get_dup_corners(r, q, corner) {
+    fn upgrade_to_city(&mut self, corner: [usize; 3], color: PlayerColor) {
+        for [r, q, c] in get_dup_corners(corner) {
             self.structures[r][q][c] = Some(Structure {
                 structure_type: StructureType::City,
                 color
@@ -639,8 +652,9 @@ const fn is_on_board(r: usize, q: usize) -> bool {
     r < 5 && q < 5 && r + q >= 2 && r + q <= 6
 }
 
-const fn reduce_corner(r: usize, q: usize, corner: usize) -> [usize; 3] {
-    match corner {
+const fn reduce_corner(corner: [usize; 3]) -> [usize; 3] {
+    let [r, q, c] = corner;
+    match c {
         0 => if r != 0 && is_on_board(r - 1, q) {
             [r - 1, q, 2]
         } else if r != 0 && is_on_board(r - 1, q + 1) {
@@ -671,8 +685,9 @@ const fn reduce_corner(r: usize, q: usize, corner: usize) -> [usize; 3] {
     }
 }
 
-const fn reduce_edge(r: usize, q: usize, edge: usize) -> [usize; 3] {
-    match edge {
+const fn reduce_edge(edge: [usize; 3]) -> [usize; 3] {
+    let [r, q, e] = edge;
+    match e {
         0 => if r != 0 && is_on_board(r - 1, q) {
             [r - 1, q, 3]
         } else {
@@ -695,96 +710,103 @@ const fn reduce_edge(r: usize, q: usize, edge: usize) -> [usize; 3] {
     }
 }
 
-fn hexes_touched(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 2]> {
+fn hexes_touched(corner: [usize; 3]) -> impl Iterator<Item = [usize; 2]> {
+    let [r, q, c] = corner;
     let mut neighbors = vec![[r, q]];
 
-    let neighbor1 = [(r as isize + DIRS[corner][0]) as usize, (q as isize + DIRS[corner][1]) as usize];
+    let neighbor1 = [(r as isize + DIRS[c][0]) as usize, (q as isize + DIRS[c][1]) as usize];
     if is_on_board(neighbor1[0], neighbor1[1]) {
         neighbors.push(neighbor1);
     }
-    let neighbor2 = [(r as isize + DIRS[(corner + 1) % 6][0]) as usize, (q as isize + DIRS[(corner + 1) % 6][1]) as usize];
+    let neighbor2 = [(r as isize + DIRS[(c + 1) % 6][0]) as usize, (q as isize + DIRS[(c + 1) % 6][1]) as usize];
     if is_on_board(neighbor2[0], neighbor2[1]) {
         neighbors.push(neighbor2);
     }
     neighbors.into_iter()
 }
 
-fn get_dup_corners(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 3]> {
-    let mut dups = vec![[r, q, corner]];
-    let neighbor1 = [(r as isize + DIRS[corner][0]) as usize, (q as isize + DIRS[corner][1]) as usize];
+fn get_dup_corners(corner: [usize; 3]) -> impl Iterator<Item = [usize; 3]> {
+    let [r, q, c] = corner;
+    let mut dups = vec![[r, q, c]];
+    let neighbor1 = [(r as isize + DIRS[c][0]) as usize, (q as isize + DIRS[c][1]) as usize];
     if is_on_board(neighbor1[0], neighbor1[1]) {
-        dups.push([neighbor1[0], neighbor1[1], (corner + 2) % 6]);
+        dups.push([neighbor1[0], neighbor1[1], (c + 2) % 6]);
     }
-    let neighbor2 = [(r as isize + DIRS[(corner + 1) % 6][0]) as usize, (q as isize + DIRS[(corner + 1) % 6][1]) as usize];
+    let neighbor2 = [(r as isize + DIRS[(c + 1) % 6][0]) as usize, (q as isize + DIRS[(c + 1) % 6][1]) as usize];
     if is_on_board(neighbor2[0], neighbor2[1]) {
-        dups.push([neighbor2[0], neighbor2[1], (corner + 4) % 6]);
+        dups.push([neighbor2[0], neighbor2[1], (c + 4) % 6]);
     }
     dups.into_iter()
 }
 
-fn get_dup_edges(r: usize, q: usize, edge: usize) -> impl Iterator<Item = [usize; 3]> {
-    let mut dups = vec![[r, q, edge]];
-    let neighbor = [(r as isize + DIRS[edge][0]) as usize, (q as isize + DIRS[edge][1]) as usize];
+fn get_dup_edges(edge: [usize; 3]) -> impl Iterator<Item = [usize; 3]> {
+    let [r, q, e] = edge;
+    let mut dups = vec![[r, q, e]];
+    let neighbor = [(r as isize + DIRS[e][0]) as usize, (q as isize + DIRS[e][1]) as usize];
     if is_on_board(neighbor[0], neighbor[1]) {
-        dups.push([neighbor[0], neighbor[1], (edge + 3) % 6]);
+        dups.push([neighbor[0], neighbor[1], (e + 3) % 6]);
     }
     dups.into_iter()
 }
 
-fn corner_corner_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 3]> {
-    let mut neighbors = vec![[r, q, (corner + 5) % 6], [r, q, (corner + 1) % 6]];
+fn corner_corner_neighbors(corner: [usize; 3]) -> impl Iterator<Item = [usize; 3]> {
+    let [r, q, c] = corner;
+    let mut neighbors = vec![[r, q, (c + 5) % 6], [r, q, (c + 1) % 6]];
 
-    let hex_neighbor1 = [(r as isize + DIRS[corner][0]) as usize, (q as isize + DIRS[corner][1]) as usize];
-    let hex_neighbor2 = [(r as isize + DIRS[(corner + 1) % 6][0]) as usize, (q as isize + DIRS[(corner + 1) % 6][1]) as usize];
+    let hex_neighbor1 = [(r as isize + DIRS[c][0]) as usize, (q as isize + DIRS[c][1]) as usize];
+    let hex_neighbor2 = [(r as isize + DIRS[(c + 1) % 6][0]) as usize, (q as isize + DIRS[(c + 1) % 6][1]) as usize];
     if is_on_board(hex_neighbor1[0], hex_neighbor1[1]) {
-        neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (corner + 1) % 6]);
+        neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (c + 1) % 6]);
     } else if is_on_board(hex_neighbor2[0], hex_neighbor2[1]) {
-        neighbors.push([hex_neighbor2[0], hex_neighbor2[1], (corner + 5) % 6]);
+        neighbors.push([hex_neighbor2[0], hex_neighbor2[1], (c + 5) % 6]);
     }
     neighbors.into_iter()
 }
 
-fn edge_edge_neighbors(r: usize, q: usize, edge: usize) -> impl Iterator<Item = [usize; 3]> {
-    let mut neighbors = vec![[r, q, (edge + 5) % 6], [r, q, (edge + 1) % 6]];
-    let full_neighbor = [(r as isize + DIRS[edge][0]) as usize, (q as isize + DIRS[edge][1]) as usize];
-    let half_neighbor_l = [(r as isize + DIRS[(edge + 5) % 6][0]) as usize, (q as isize + DIRS[(edge + 5) % 6][1]) as usize];
-    let half_neighbor_r = [(r as isize + DIRS[(edge + 1) % 6][0]) as usize, (q as isize + DIRS[(edge + 1) % 6][1]) as usize];
+fn edge_edge_neighbors(edge: [usize; 3]) -> impl Iterator<Item = [usize; 3]> {
+    let [r, q, e] = edge;
+    let mut neighbors = vec![[r, q, (e + 5) % 6], [r, q, (e + 1) % 6]];
+    let full_neighbor = [(r as isize + DIRS[e][0]) as usize, (q as isize + DIRS[e][1]) as usize];
+    let half_neighbor_l = [(r as isize + DIRS[(e + 5) % 6][0]) as usize, (q as isize + DIRS[(e + 5) % 6][1]) as usize];
+    let half_neighbor_r = [(r as isize + DIRS[(e + 1) % 6][0]) as usize, (q as isize + DIRS[(e + 1) % 6][1]) as usize];
     if is_on_board(full_neighbor[0], full_neighbor[1]) {
-        neighbors.push([full_neighbor[0], full_neighbor[1], (edge + 2) % 6]);
-        neighbors.push([full_neighbor[0], full_neighbor[1], (edge + 4) % 6]);
+        neighbors.push([full_neighbor[0], full_neighbor[1], (e + 2) % 6]);
+        neighbors.push([full_neighbor[0], full_neighbor[1], (e + 4) % 6]);
     }
     else {
         if is_on_board(half_neighbor_l[0], half_neighbor_l[1]) {
-            neighbors.push([half_neighbor_l[0], half_neighbor_l[1], (edge + 1) % 6]);
+            neighbors.push([half_neighbor_l[0], half_neighbor_l[1], (e + 1) % 6]);
         }
         if is_on_board(half_neighbor_r[0], half_neighbor_r[1]) {
-            neighbors.push([half_neighbor_r[0], half_neighbor_r[1], (edge + 5) % 6]);
+            neighbors.push([half_neighbor_r[0], half_neighbor_r[1], (e + 5) % 6]);
         }
     }
     neighbors.into_iter()
 }
 
-fn corner_edge_neighbors(r: usize, q: usize, corner: usize) -> impl Iterator<Item = [usize; 3]> {
-    let mut neighbors = vec![[r, q, corner], [r, q, (corner + 1) % 6]];
+fn corner_edge_neighbors(corner: [usize; 3]) -> impl Iterator<Item = [usize; 3]> {
+    let [r, q, c] = corner;
+    let mut neighbors = vec![[r, q, c], [r, q, (c + 1) % 6]];
 
-    let hex_neighbor1 = [(r as isize + DIRS[corner][0]) as usize, (q as isize + DIRS[corner][1]) as usize];
-    let hex_neighbor2 = [(r as isize + DIRS[(corner + 1) % 6][0]) as usize, (q as isize + DIRS[(corner + 1) % 6][1]) as usize];
+    let hex_neighbor1 = [(r as isize + DIRS[c][0]) as usize, (q as isize + DIRS[c][1]) as usize];
+    let hex_neighbor2 = [(r as isize + DIRS[(c + 1) % 6][0]) as usize, (q as isize + DIRS[(c + 1) % 6][1]) as usize];
     if is_on_board(hex_neighbor1[0], hex_neighbor1[1]) {
-        neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (corner + 2) % 6]);
+        neighbors.push([hex_neighbor1[0], hex_neighbor1[1], (c + 2) % 6]);
     } else if is_on_board(hex_neighbor2[0], hex_neighbor2[1]) {
-        neighbors.push([hex_neighbor2[0], hex_neighbor2[1], (corner + 5) % 6]);
+        neighbors.push([hex_neighbor2[0], hex_neighbor2[1], (c + 5) % 6]);
     }
     neighbors.into_iter()
 }
 
-fn edge_corner_neighbors(r: usize, q: usize, edge: usize) -> [[usize; 3]; 2] {
-    [[r, q, edge], [r, q, (edge + 5) % 6]]
+fn edge_corner_neighbors(edge: [usize; 3]) -> [[usize; 3]; 2] {
+    let [r, q, e] = edge;
+    [[r, q, e], [r, q, (e + 5) % 6]]
 }
 
 fn intersecting_corner(edge1: [usize; 3], edge2: [usize; 3]) -> Option<[usize; 3]> {
-    edge_corner_neighbors(edge1[0], edge1[1], edge1[2]).into_iter()
-    .flat_map(|[r, q, c]| get_dup_corners(r, q, c))
+    edge_corner_neighbors(edge1).into_iter()
+    .flat_map(|neighbor_corner| get_dup_corners(neighbor_corner))
     .find(|&c1|
-        edge_corner_neighbors(edge2[0], edge2[1], edge2[2]).into_iter().any(|c2| c1 == c2)
+        edge_corner_neighbors(edge2).into_iter().any(|c2| c1 == c2)
     )
 }
