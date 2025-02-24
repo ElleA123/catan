@@ -2,6 +2,7 @@ use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
 
 pub mod game;
 pub mod render;
+pub mod screen_coords;
 
 use crate::game::*;
 use crate::render::*;
@@ -189,7 +190,7 @@ impl GameState {
         self.roll = Some([rng.random_range(1..=6), rng.random_range(1..=6)]);
         let sum = self.roll.unwrap()[0] + self.roll.unwrap()[1];
         if sum == 7 {
-            self.handle_seven(rng).await
+            self.handle_seven(rng).await // Why the fuck did I do this, lmao
         } else {
             self.board.give_resources(&mut self.players, sum);
         }

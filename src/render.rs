@@ -1,7 +1,7 @@
 use macroquad::prelude::*;
 
 use crate::{Action, Board, DVCard, DVHand, GameState, Hex, PlayerColor, Port, ResHand, Resource, StructureType};
-use crate::{BOARD_COORDS, PORT_COORDS, CORNER_COORDS, EDGE_COORDS, RESOURCES, DV_CARDS, DV_CARD_HAND, ROAD_HAND, SETTLEMENT_HAND, CITY_HAND};
+use crate::{HEX_COORDS, PORT_COORDS, CORNER_COORDS, EDGE_COORDS, RESOURCES, DV_CARDS, DV_CARD_HAND, ROAD_HAND, SETTLEMENT_HAND, CITY_HAND};
 
 const SQRT_3: f32 = 1.732050807568877293527446341505872367_f32;
 
@@ -96,8 +96,8 @@ fn get_centers(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]
     let start_y: f32 = y + 0.5 * height - (2.0 * r_shift_y);
 
     let mut centers = [[0.0; 2]; 19];
-    for idx in 0..BOARD_COORDS.len() {
-        let [r, q] = BOARD_COORDS[idx];
+    for idx in 0..HEX_COORDS.len() {
+        let [r, q] = HEX_COORDS[idx];
         let x_ = start_x + q_shift * q as f32 + r_shift_x * r as f32;
         let y_ = start_y + r_shift_y * r as f32;
         centers[idx] = [x_, y_];
@@ -130,7 +130,7 @@ fn get_corners(centers: &[[f32; 2]; 19], scale: f32) -> [[f32; 2]; 54] {
     let mut corners = [[0.0; 2]; 54];
     for idx in 0..CORNER_COORDS.len() {
         let [r, q, c] = CORNER_COORDS[idx];
-        let hex = centers[BOARD_COORDS.iter().position(|c| *c == [r, q]).unwrap()]; // prob slow
+        let hex = centers[HEX_COORDS.iter().position(|c| *c == [r, q]).unwrap()]; // prob slow
         corners[idx] = get_corner(hex, c, scale);
     }
     corners
@@ -138,7 +138,7 @@ fn get_corners(centers: &[[f32; 2]; 19], scale: f32) -> [[f32; 2]; 54] {
 
 // fn get_corners(centers: &[[f32; 2]; 19], scale: f32) -> [[[f32; 2]; 6]; 19] {
 //     let mut corners = [[[0.0; 2]; 6]; 19];
-//     for center in 0..BOARD_COORDS.len() {
+//     for center in 0..HEX_COORDS.len() {
 //         for n in 0..6 {
 //             corners[center][n] = get_corner(centers[center], n, scale);
 //         }
@@ -171,7 +171,7 @@ fn get_edges(centers: &[[f32; 2]; 19], scale: f32) -> [[f32; 2]; 72] {
     let mut edges = [[0.0; 2]; 72];
     for idx in 0..EDGE_COORDS.len() {
         let [r, q, e] = EDGE_COORDS[idx];
-        let hex = centers[BOARD_COORDS.iter().position(|c| *c == [r, q]).unwrap()]; // prob slow
+        let hex = centers[HEX_COORDS.iter().position(|c| *c == [r, q]).unwrap()]; // prob slow
         edges[idx] = get_edge(hex, e, scale);
     }
     edges
@@ -179,7 +179,7 @@ fn get_edges(centers: &[[f32; 2]; 19], scale: f32) -> [[f32; 2]; 72] {
 
 // fn get_edges(corners: &[[[f32; 2]; 6]; 19]) -> [[[f32; 2]; 6]; 19] {
 //     let mut edges = [[[0.0; 2]; 6]; 19];
-//     for center in 0..BOARD_COORDS.len() {
+//     for center in 0..HEX_COORDS.len() {
 //         for n in 0..6 {
 //             let [x1, y1] = corners[center][n];
 //             let [x2, y2] = corners[center][(n + 5) % 6];
@@ -257,7 +257,7 @@ fn render_desert(center: [f32; 2], scale: f32) {
 
 fn render_hexes(board: &Board, centers: &[[f32; 2]; 19], scale: f32) {
     for idx in 0..19 {
-        let [r, q] = BOARD_COORDS[idx];
+        let [r, q] = HEX_COORDS[idx];
         match board.hexes[r][q] {
             Some(hex) => render_hex(centers[idx], hex, scale),
             None => render_desert(centers[idx], scale)
@@ -344,8 +344,8 @@ fn render_road(center: [f32; 2], edge: usize, color: Color, scale: f32) {
 }
 
 fn render_roads(board: &Board, centers: &[[f32; 2]; 19], scale: f32) {
-    for idx in 0..BOARD_COORDS.len() {
-        let [r, q] = BOARD_COORDS[idx];
+    for idx in 0..HEX_COORDS.len() {
+        let [r, q] = HEX_COORDS[idx];
         for n in 0..6 {
             if let Some(pc) = board.roads[r][q][n] {
                 render_road(centers[idx], n, pc.into(), scale)
@@ -355,8 +355,8 @@ fn render_roads(board: &Board, centers: &[[f32; 2]; 19], scale: f32) {
 }
 
 fn render_structures(board: &Board, centers: &[[f32; 2]; 19], scale: f32) {
-    for idx in 0..BOARD_COORDS.len() {
-        let [r, q] = BOARD_COORDS[idx];
+    for idx in 0..HEX_COORDS.len() {
+        let [r, q] = HEX_COORDS[idx];
         for n in 0..6 {
             if let Some(s) = board.structures[r][q][n] {
                 if s.structure_type == StructureType::Settlement {
@@ -371,7 +371,7 @@ fn render_structures(board: &Board, centers: &[[f32; 2]; 19], scale: f32) {
 
 fn render_robber(hex: [usize; 2], centers: &[[f32; 2]; 19], scale: f32) {
     let thickness = scale / 20.0;
-    let [x, y] = centers[BOARD_COORDS.iter().position(|coord| *coord == hex).unwrap()];
+    let [x, y] = centers[HEX_COORDS.iter().position(|coord| *coord == hex).unwrap()];
 
     let w1 = 0.4 * scale;
     let h1 = 0.8 * scale;
@@ -737,7 +737,7 @@ fn render_moving_robber(centers: &[[f32; 2]; 19], board: &Board, radius: f32) {
     let radius = 2.3 * radius;
     let alpha = 0;
     for (_, pos) in centers.iter().copied().enumerate()
-        .filter(|(idx, _)| { BOARD_COORDS[*idx] != board.robber }
+        .filter(|(idx, _)| { HEX_COORDS[*idx] != board.robber }
     ) {
         render_clickable(pos, radius, alpha);
     }

@@ -347,7 +347,7 @@ pub struct Board {
     pub dv_bank: DVHand,
 }
 
-pub const BOARD_COORDS: [[usize; 2]; 19] = [
+pub const HEX_COORDS: [[usize; 2]; 19] = [
     [0, 2], [0, 3], [0, 4],
     [1, 1], [1, 2], [1, 3], [1, 4],
     [2, 0], [2, 1], [2, 2], [2, 3], [2, 4],
@@ -366,8 +366,8 @@ const fn corner_coords() -> [[usize; 3]; 54] {
     let mut idx = 0;
 
     let mut hex = 0;
-    while hex < BOARD_COORDS.len() {
-        let [r, q] = BOARD_COORDS[hex];
+    while hex < HEX_COORDS.len() {
+        let [r, q] = HEX_COORDS[hex];
         let mut c = 0;
         while c < 6 {
             let [r_, q_, c_] = reduce_corner([r, q, c]);
@@ -387,8 +387,8 @@ const fn edge_coords() -> [[usize; 3]; 72] {
     let mut idx = 0;
 
     let mut hex = 0;
-    while hex < BOARD_COORDS.len() {
-        let [r, q] = BOARD_COORDS[hex];
+    while hex < HEX_COORDS.len() {
+        let [r, q] = HEX_COORDS[hex];
         let mut e = 0;
         while e < 6 {
             let [r_, q_, e_] = reduce_edge([r, q, e]);
@@ -430,7 +430,7 @@ impl Board {
         let mut hexes: [[Option<Hex>; 5]; 5] = [[None; 5]; 5];
         let structures: [[[Option<Structure>; 6]; 5]; 5] = [[[None; 6]; 5]; 5];
         let roads: [[[Option<PlayerColor>; 6]; 5]; 5] = [[[None; 6]; 5]; 5];
-        let robber = *BOARD_COORDS.choose(rng).unwrap();
+        let robber = *HEX_COORDS.choose(rng).unwrap();
 
         // Shuffle resources
         let mut resources = BOARD_RESOURCES;
@@ -446,7 +446,7 @@ impl Board {
         // dv_bank.shuffle(rng);
 
         let mut i = 0;
-        for [r, q] in BOARD_COORDS {
+        for [r, q] in HEX_COORDS {
             // Check for desert
             if robber != [r, q] {
                 // No sixes or eights next to each other
@@ -607,7 +607,7 @@ impl Board {
     }
 
     pub fn give_resources(&self, players: &mut Vec<Player>, roll: usize) {
-        for [r, q] in BOARD_COORDS {
+        for [r, q] in HEX_COORDS {
             if [r, q] == self.robber {
                 continue;
             }
