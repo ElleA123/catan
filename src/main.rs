@@ -1,12 +1,13 @@
+use macroquad::window;
 use rand::{seq::{IndexedRandom, SliceRandom}, Rng};
 
-pub mod game;
-pub mod render;
-pub mod screen_coords;
+mod game;
+mod render;
+mod screen_coords;
 
 use crate::game::*;
 use crate::render::*;
-
+use crate::screen_coords::ScreenCoords;
 
 enum Action {
     Idling,
@@ -69,6 +70,7 @@ impl GameState {
         }
     }
 
+    /*
     fn get_current_player(&self) -> &Player {
         &self.players[self.current_player]
     }
@@ -210,8 +212,10 @@ impl GameState {
     fn winner(&self) -> Option<PlayerColor> {
         self.players.iter().find(|player| player.has_won()).map(|player| player.get_color())
     }
+    */
 }
 
+/*
 fn mouse_is_on_circle(mouse_pos: (f32, f32), center: &[f32; 2], radius: f32) -> bool {
     (mouse_pos.0 - center[0]).powi(2) + (mouse_pos.1 - center[1]).powi(2) <= radius.powi(2)
 }
@@ -442,4 +446,20 @@ async fn main() {
         macroquad::window::next_frame().await
     }
     println!("{:?} wins!!!", winner);
+}
+*/
+
+#[macroquad::main("Catan")]
+async fn main() {
+    let mut rng = rand::rng();
+    let num_players = 4;
+
+    let mut coords = ScreenCoords::new();
+    let mut state = GameState::new(num_players, &mut rng);
+
+    loop {
+        coords.update();
+        render_screen(&coords, &state);
+        window::next_frame().await
+    }
 }

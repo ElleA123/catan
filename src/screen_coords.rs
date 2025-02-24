@@ -182,7 +182,7 @@ impl ScreenCoords {
             5 => 0.0,
             _ => panic!("render::get_ports(): invalid edge")
         },
-        (e * 60 + 15) as f32]
+        (e * 60 + 60 - 45) as f32]
     }
 
     fn update_ports(&mut self, zone: &Zone) {
