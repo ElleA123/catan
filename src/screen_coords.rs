@@ -23,6 +23,9 @@ impl Zone {
             height: height * height_factor
         }
     }
+    fn as_arr(&self) -> [f32; 4] {
+        [self.x, self.y, self.width, self.height]
+    }
 }
 
 pub struct ScreenCoords {
@@ -31,14 +34,15 @@ pub struct ScreenCoords {
     pub edges: [[f32; 2]; 72],
     pub ports: [[f32; 3]; 9],
     pub hex_size: f32,
+    pub hand_zone: [f32; 4],
     pub cards: [[f32; 2]; 10],
     pub card_size: [f32; 2],
+    pub menu_zone: [f32; 4],
     pub buttons: [[f32; 2]; 5],
     pub button_size: f32,
     pub dice: [[f32; 2]; 2],
     pub dice_size: f32,
-    pub info_box: [f32; 2],
-    pub info_box_size: [f32; 2],
+    pub info_box: [f32; 4],
 }
 
 impl ScreenCoords {
@@ -49,14 +53,15 @@ impl ScreenCoords {
             edges: [[0.0; 2]; 72],
             ports: [[0.0; 3]; 9],
             hex_size: 0.0,
+            hand_zone: [0.0; 4],
             cards: [[0.0; 2]; 10],
             card_size: [0.0; 2],
+            menu_zone: [0.0; 4],
             buttons: [[0.0; 2]; 5],
             button_size: 0.0,
             dice: [[0.0; 2]; 2],
             dice_size: 0.0,
-            info_box: [0.0; 2],
-            info_box_size: [0.0; 2],
+            info_box: [0.0; 4],
         }
     }
 
@@ -69,7 +74,10 @@ impl ScreenCoords {
         let menu_zone = Zone::new(width, height, 0.6, 0.85, 0.4, 0.15);
         let dice_zone = Zone::new(width, height, 0.8, 0.70, 0.2, 0.15);
         let info_box_zone = Zone::new(width, height, 0.0, 0.0, 0.2, 0.1);
-        let selector_zone = Zone::new(width, height, 0.0, 0.50, 0.30, 0.35);
+        // let selector_zone = Zone::new(width, height, 0.0, 0.50, 0.30, 0.35);
+
+        self.hand_zone = hand_zone.as_arr();
+        self.menu_zone = menu_zone.as_arr();
 
         self.update_board_coords(board_zone);
         self.update_cards(hand_zone);
@@ -240,9 +248,7 @@ impl ScreenCoords {
     }
 
     fn update_info_box(&mut self, zone: Zone) {
-        let Zone { x, y, width, height } = zone;
-        self.info_box = [x, y];
-        self.info_box_size = [width, height];
+        self.info_box = zone.as_arr();
     }
 }
 

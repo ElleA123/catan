@@ -70,7 +70,6 @@ impl GameState {
         }
     }
 
-    /*
     fn get_current_player(&self) -> &Player {
         &self.players[self.current_player]
     }
@@ -87,6 +86,7 @@ impl GameState {
         self.players.iter_mut().find(|player| player.is_color(color))
     }
 
+    /*
     fn handle_setup_settlement_click(&mut self, mouse_pos: (f32, f32), clickables: &ClickablePoints) -> Option<[usize; 3]> {
         let color = self.get_current_player().get_color();
         let radius = 0.2 * clickables.board_scale;
@@ -456,10 +456,14 @@ async fn main() {
 
     let mut coords = ScreenCoords::new();
     let mut state = GameState::new(num_players, &mut rng);
+    
+    state.get_current_player_mut().add_cards(SETTLEMENT_HAND);
+    state.get_current_player_mut().add_cards(DV_CARD_HAND);
+    state.get_current_player_mut().buy_dv(DVCard::Knight);
 
     loop {
         coords.update();
-        render_screen(&coords, &state);
+        render_screen(&coords, &state, state.get_current_player().get_color());
 
         window::next_frame().await
     }

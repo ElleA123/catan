@@ -1,13 +1,11 @@
 use macroquad::prelude::*;
 
-use crate::{
-    Action, GameState,
-    game::{
-        Board, DVCard, DVHand, Hex, PlayerColor, Port, ResHand, Resource, StructureType,
-        HEX_COORDS, PORT_COORDS, CORNER_COORDS, EDGE_COORDS, RESOURCES, DV_CARDS, DV_CARD_HAND, ROAD_HAND, SETTLEMENT_HAND, CITY_HAND
-    },
-    screen_coords::ScreenCoords
+use crate::game::{
+    Board, DVCard, DVHand, Hex, Player, PlayerColor, Port, ResHand, Resource, StructureType,
+    CITY_HAND, CORNER_COORDS, DV_CARDS, DV_CARD_HAND, EDGE_COORDS, HEX_COORDS, PORT_COORDS, RESOURCES, ROAD_HAND, SETTLEMENT_HAND
 };
+use crate::screen_coords::ScreenCoords;
+use crate::{GameState, Action};
 
 const SQRT_3: f32 = 1.732050807568877293527446341505872367_f32;
 
@@ -41,7 +39,7 @@ fn render_desert(center: &[f32; 2], hex_size: f32) {
 }
 
 fn render_hexes(board: &Board, centers: &[[f32; 2]; 19], hex_size: f32) {
-    for idx in 0..19 {
+    for idx in 0..HEX_COORDS.len() {
         let [r, q] = HEX_COORDS[idx];
         match board.hexes[r][q] {
             Some(hex) => render_hex(&centers[idx], hex, hex_size),
@@ -186,9 +184,8 @@ fn render_robber(hex: [usize; 2], centers: &[[f32; 2]; 19], hex_size: f32) {
     draw_rectangle_lines(x2, y2, w2, h2, thickness, BLACK);
 }
 
-fn render_board(coords: &ScreenCoords, state: &GameState) {
+fn render_board(coords: &ScreenCoords, board: &Board) {
     let ScreenCoords { centers, corners, edges, ports, hex_size, .. } = coords;
-    let board = &state.board;
 
     render_hexes(board, centers, *hex_size);
     render_ports(board, ports, *hex_size);
@@ -197,26 +194,12 @@ fn render_board(coords: &ScreenCoords, state: &GameState) {
     render_robber(board.robber, centers, *hex_size);
 }
 
-/*
-fn get_cards(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 10] {
-    let shift = scale;
-
-    let start_x = x + shift - 0.7 * scale;
-    let y = y + 0.5 * height - 0.5 * scale;
-    
-    let mut cards = [[0.0, y]; 10];
-    for i in 0..cards.len() {
-        cards[i] = [start_x + i as f32 * shift, y];
-    }
-    cards
-}
-
-fn render_count(pos: [f32; 2], _width: f32, height: f32, count: &str) {
+fn render_count(pos: &[f32; 2], _width: f32, height: f32, count: &str) {
     let size = height / 3.0;
     let thickness = height / 20.0;
     let font_size = height / 3.0;
 
-    let [x, y] = pos;
+    let &[x, y] = pos;
     let text_x = x + 0.07 * height;
     let text_y = y + 0.25 * height;
     draw_rectangle(x, y, size, size, WHITE);
@@ -224,12 +207,11 @@ fn render_count(pos: [f32; 2], _width: f32, height: f32, count: &str) {
     draw_text(count, text_x, text_y, font_size, BLACK);
 }
 
-fn render_resource(pos: [f32; 2], resource: Resource, count: &str, scale: f32) {
-    let width = 0.7 * scale;
-    let height = scale;
-    let thickness = height / 20.0;
+fn render_resource(pos: &[f32; 2], size: &[f32; 2], resource: Resource, count: &str) {
+    let &[x, y] = pos;
+    let &[width, height] = size;
 
-    let [x, y] = pos;
+    let thickness = height / 20.0;
     let color = resource.into();
 
     draw_rectangle(x, y, width, height, color);
@@ -237,11 +219,12 @@ fn render_resource(pos: [f32; 2], resource: Resource, count: &str, scale: f32) {
     render_count(pos, width, height, count);
 }
 
-fn render_dv(pos: [f32; 2], width: f32, height: f32, dv: DVCard, count: &str) {
+fn render_dv(pos: &[f32; 2], size: &[f32; 2], dv: DVCard, count: &str) {
+    let &[x, y] = pos;
+    let &[width, height] = size;
+
     let thickness = height / 20.0;
     let font_size = height / 3.0;
-
-    let [x, y] = pos;
     let text_x = x + 0.2 * height;
     let text_y = y + 0.75 * height;
 
@@ -251,40 +234,31 @@ fn render_dv(pos: [f32; 2], width: f32, height: f32, dv: DVCard, count: &str) {
     render_count(pos, width, height, count);
 }
 
-fn render_hand(zone: Zone, hand: &ResHand, dvs: &DVHand, new_dvs: &DVHand) -> HandPoints {
-    let Zone { x, y, width, height } = zone;
-    let scale = if 0.9 * height < width / 10.2 { 0.9 * height } else { width / 10.2 };
-    let card_width = 0.7 * scale;
-    let card_height = scale;
-    let cards = get_cards(x, y, width, height, scale);
+fn render_hand(coords: &ScreenCoords, player: &Player) {
+    let &[x, y, width, height] = &coords.hand_zone;
+    let cards = &coords.cards;
+    let size = &coords.card_size;
 
-    let mut num_cards = 0;
+    let hand = player.get_hand();
+    let all_dvs = player.get_combined_dvs();
+
     let mut card_idx = 0;
     draw_rectangle(x, y, width, height, BEIGE);
     for res in RESOURCES {
         if hand[res] > 0 {
-            render_resource(cards[card_idx], res, hand[res].to_string().as_str(), scale);
-            num_cards += 1;
+            render_resource(&cards[card_idx], size, res, hand[res].to_string().as_str());
             card_idx += 1;
         }
     }
     for dv in DV_CARDS {
-        if dvs[dv] + new_dvs[dv] > 0 {
-            render_dv(cards[card_idx], card_width, card_height, dv, (dvs[dv] + new_dvs[dv]).to_string().as_str());
-            if dv != DVCard::VictoryPoint {
-                num_cards += 1;
-            }
+        if all_dvs[dv] > 0 {
+            render_dv(&cards[card_idx], size, dv, all_dvs[dv].to_string().as_str());
             card_idx += 1;
         }
     }
-
-    HandPoints {
-        cards,
-        card_size: [card_width, card_height],
-        num_cards,
-    }
 }
 
+/*
 fn get_buttons(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
     let shift = if scale < height {
         scale
@@ -578,14 +552,15 @@ fn render_state_dependents(_screen_width: f32, _screen_height: f32, board_points
     }
     return None;
 }
-*/
+// */
 
-pub fn render_screen(coords: &ScreenCoords, state: &GameState) {
-
+pub fn render_screen(coords: &ScreenCoords, state: &GameState, color: PlayerColor) {
+    let player = state.get_player(color).unwrap();
+    let board = &state.board;
 
     clear_background(BLUE);
-    render_board(coords, state);
-    // render_hand(coords, state);
+    render_board(coords, board);
+    render_hand(coords, player);
     // render_menu(coords, state);
     // render_dice(coords, state);
     // render_turn_view(coords, state);
