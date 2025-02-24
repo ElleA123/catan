@@ -37,6 +37,8 @@ pub struct ScreenCoords {
     pub button_size: f32,
     pub dice: [[f32; 2]; 2],
     pub dice_size: f32,
+    pub info_box: [f32; 2],
+    pub info_box_size: [f32; 2],
 }
 
 impl ScreenCoords {
@@ -53,6 +55,8 @@ impl ScreenCoords {
             button_size: 0.0,
             dice: [[0.0; 2]; 2],
             dice_size: 0.0,
+            info_box: [0.0; 2],
+            info_box_size: [0.0; 2],
         }
     }
 
@@ -64,10 +68,14 @@ impl ScreenCoords {
         let hand_zone = Zone::new(width, height, 0.0, 0.85, 0.6, 0.15);
         let menu_zone = Zone::new(width, height, 0.6, 0.85, 0.4, 0.15);
         let dice_zone = Zone::new(width, height, 0.8, 0.70, 0.2, 0.15);
-        let turn_zone = Zone::new(width, height, 0.0, 0.0, 0.2, 0.1);
+        let info_box_zone = Zone::new(width, height, 0.0, 0.0, 0.2, 0.1);
         let selector_zone = Zone::new(width, height, 0.0, 0.50, 0.30, 0.35);
 
         self.update_board_coords(board_zone);
+        self.update_cards(hand_zone);
+        self.update_buttons(menu_zone);
+        self.update_dice(dice_zone);
+        self.update_info_box(info_box_zone);
     }
 
     fn update_board_coords(&mut self, zone: Zone) {
@@ -229,6 +237,12 @@ impl ScreenCoords {
         let x1 = x + 0.5 * width - 1.1 * dice_size;
         let x2 = x + 0.5 * width + 0.1 * dice_size;
         self.dice = [[x1, y], [x2, y]];
+    }
+
+    fn update_info_box(&mut self, zone: Zone) {
+        let Zone { x, y, width, height } = zone;
+        self.info_box = [x, y];
+        self.info_box_size = [width, height];
     }
 }
 

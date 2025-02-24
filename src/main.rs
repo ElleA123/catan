@@ -460,6 +460,7 @@ async fn main() {
     loop {
         coords.update();
         render_screen(&coords, &state);
+
         window::next_frame().await
     }
 }
