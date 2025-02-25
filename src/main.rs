@@ -1,3 +1,5 @@
+use core::num;
+
 use macroquad::{
     input::{is_mouse_button_pressed, mouse_position, MouseButton}, window
 };
@@ -78,7 +80,7 @@ impl SetupState {
 
         if self.all_placed_once {
             let start_hand = self.board.get_starting_resources(corner);
-            self.get_current_player_mut().add_cards(start_hand);
+            self.get_current_player_mut().get_cards(start_hand);
         }
     }
 
@@ -112,6 +114,12 @@ enum Action {
     BuildingCity,
 }
 
+enum RngAction {
+    RollingDice,
+    Stealing(PlayerColor),
+    BuyingDV,
+}
+
 pub struct GameState {
     num_players: usize,
     board: Board,
@@ -122,16 +130,10 @@ pub struct GameState {
     longest_road_size: usize,
     current_player: usize,
     action: Action,
-    rolling_dice: bool,
     roll: Option<[usize; 2]>,
     played_dv: bool,
-    stealing_from: Option<PlayerColor>,
-    discarding: Option<ResHand>,
-    yopping: Option<ResHand>,
-    monopolizing: Option<ResHand>,
-    offering_trade: bool,
     offered_trades: Vec<(ResHand, ResHand)>,
-    passing_turn: bool,
+    rng_action: Option<RngAction>,
 }
 
 impl From<SetupState> for GameState {
@@ -146,16 +148,10 @@ impl From<SetupState> for GameState {
             longest_road_size: 4,
             current_player: 0,
             action: Action::Idling,
-            rolling_dice: false,
             roll: None,
             played_dv: false,
-            discarding: None,
-            stealing_from: None,
-            yopping: None,
-            monopolizing: None,
-            offering_trade: false,
             offered_trades: Vec::new(),
-            passing_turn: false,
+            rng_action: None,
         }
     }
 }
@@ -210,37 +206,43 @@ impl GameState {
         self.players.iter_mut().find(|player| player.is_color(color))
     }
 
+    fn get_order(&self) -> Vec<PlayerColor> {
+        self.players.iter().map(|player| player.get_color()).collect()
+    }
+
     fn is_players_turn(&self, color: PlayerColor) -> bool {
         self.get_current_color() == color
     }
 
-    fn can_buy_dv(&self, color: PlayerColor) -> bool {
-        let player = self.get_player(color).unwrap();
-        player.can_buy_dv() && self.board.can_draw_dv_card()
+    fn can_buy_dv(&self) -> bool {
+        self.get_current_player().can_buy_dv() && self.board.can_draw_dv_card()
     }
 
-    fn can_build_road(&self, color: PlayerColor) -> bool {
-        let player = self.get_player(color).unwrap();
-        player.can_build_road() && self.board.can_place_any_road(color) 
+    fn can_build_road(&self) -> bool {
+        self.get_current_player().can_build_road()
+        && self.board.can_place_any_road(self.get_current_color()) 
     }
 
-    fn can_build_settlement(&self, color: PlayerColor) -> bool {
-        let player = self.get_player(color).unwrap();
-        player.can_build_settlement() && self.board.can_place_any_settlement(color)
+    fn can_build_settlement(&self) -> bool {
+        self.get_current_player().can_build_settlement()
+        && self.board.can_place_any_settlement(self.get_current_color())
     }
 
-    fn can_build_city(&self, color: PlayerColor) -> bool {
-        let player = self.get_current_player();
-        player.can_build_city() && self.board.can_place_any_city(color)
+    fn can_build_city(&self) -> bool {
+        self.get_current_player().can_build_city()
+        && self.board.can_place_any_city(self.get_current_color())
     }
 
     fn get_available_actions(&self, color: PlayerColor) -> [bool; 5] {
+        if color != self.get_current_color() || self.roll.is_none() {
+            return [false; 5];
+        }
         match self.action {
             Action::Idling => [
-                self.can_buy_dv(color),
-                self.can_build_road(color),
-                self.can_build_settlement(color),
-                self.can_build_city(color),
+                self.can_buy_dv(),
+                self.can_build_road(),
+                self.can_build_settlement(),
+                self.can_build_city(),
                 true
             ],
             Action::BuildingRoad => [false, true, false, false, false],
@@ -250,8 +252,16 @@ impl GameState {
         }
     }
 
-    fn roll_dice<R: Rng + ?Sized>(&mut self, rng: &mut R) {
+    fn roll_dice<R: Rng + ?Sized>(&mut self, rng: &mut R) -> usize {
         self.roll = Some([rng.random_range(1..=6), rng.random_range(1..=6)]);
+        return self.roll.unwrap()[0] + self.roll.unwrap()[1];
+    }
+
+    fn give_resources(&mut self, roll: usize) {
+        let resources = self.board.get_new_resources(self.get_order(), roll);
+        for idx in 0..self.num_players {
+            self.players[idx].get_cards(resources[idx]);
+        }
     }
 
     fn buy_dv_card<R: Rng + ?Sized>(&mut self, rng: &mut R) {
@@ -277,14 +287,24 @@ impl GameState {
         self.get_current_player_mut().build_city();
     }
 
+    fn play_dv_card(&mut self, card: DVCard) {
+        match card {
+            DVCard::Knight => (),
+            DVCard::RoadBuilding => (),
+            DVCard::YearOfPlenty => (),
+            DVCard::Monopoly => (),
+            DVCard::VictoryPoint => (),
+        }
+    }
+
     fn pass_turn(&mut self) {
         self.get_current_player_mut().cycle_dvs();
 
         self.current_player = (self.current_player + 1) % self.num_players;
-        self.action = Action::Idling;
         self.roll = None;
         self.played_dv = false;
-        self.offering_trade = false;
+        self.offered_trades.clear();
+        self.action = Action::Idling;
     }
 }
 
@@ -352,7 +372,62 @@ async fn setup_game(mut state: SetupState) -> GameState {
 }
 
 fn handle_idling_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f32, f32)) {
-    
+    let [card_width, card_height] = coords.card_size;
+    if let Some(n) = coords.cards.iter().position(
+        |pos| mouse_is_on_rect(mouse_pos, *pos, card_width, card_height)
+    ) {
+        let num_resources = state.get_current_player().get_hand().count_nonzero();
+        if n >= num_resources {
+            let card = state.get_current_player().get_combined_dvs().nth_nonzero(n - num_resources).unwrap();
+            let playable_dvs = state.get_current_player().get_dvs();
+            if playable_dvs[card] > 0 {
+                state.play_dv_card(card);
+            }
+        }
+        return;
+    }
+
+    if state.roll.is_none() {
+        if coords.dice.iter().any(
+            |pos| mouse_is_on_rect(mouse_pos, *pos, coords.dice_size, coords.dice_size)
+        ) {
+            state.rng_action = Some(RngAction::RollingDice);
+        }
+        return;
+    }
+
+    let maybe_menu_id = coords.buttons.iter().position(
+        |&pos| mouse_is_on_rect(mouse_pos, pos, coords.button_size, coords.button_size)
+    );
+    if let Some(id) = maybe_menu_id {
+        match id {
+            0 => {
+                if state.can_buy_dv() {
+                    state.rng_action = Some(RngAction::BuyingDV);
+                }
+            },
+            1 => {
+                if state.can_build_road() {
+                    state.action = Action::BuildingRoad;
+                }
+            },
+            2 => {
+                if state.can_build_settlement() {
+                    state.action = Action::BuildingSettlement;
+                }
+            },
+            3 => {
+                if state.can_build_city() {
+                    state.action = Action::BuildingCity;
+                }
+            },
+            4 => {
+                state.pass_turn();
+            },
+            _ => panic!("handle_idling_click(): illegal menu button")
+        }
+        return;
+    }
 }
 
 fn handle_discarding_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f32, f32)) {
@@ -390,7 +465,7 @@ fn handle_structure_click(state: &mut GameState, coords: &ScreenCoords, mouse_po
         state.action = Action::Idling;
         return
     }
-    let radius = 0.2 * coords.build_clickable_radius;
+    let radius = coords.build_clickable_radius;
     let color = state.get_current_color();
     let maybe_idx = coords.corners.iter().position(
         |pos| mouse_is_on_circle(mouse_pos, *pos, radius)
@@ -436,6 +511,31 @@ async fn main() {
 
         if is_mouse_button_pressed(MouseButton::Left) {
             handle_click(&mut state, &coords);
+        }
+
+        if let Some(rng_action) = &state.rng_action {
+            match rng_action {
+                RngAction::RollingDice => {
+                    let mut sum = 7;
+                    while sum == 7 {
+                        sum = state.roll_dice(&mut rng);
+                    }
+                    state.give_resources(sum);
+
+                    state.rng_action = None;
+                },
+                RngAction::Stealing(color) => {
+                    let stolen = state.get_player_mut(*color).unwrap().discard_random_card(&mut rng);
+                    if let Some(res) = stolen {
+                        state.get_current_player_mut().get_card(res);
+                    }
+                    state.rng_action = None;
+                },
+                RngAction::BuyingDV => {
+                    state.buy_dv_card(&mut rng);
+                    state.rng_action = None;
+                },
+            }
         }
 
         render_screen(&coords, &state, state.get_current_color());

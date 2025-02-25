@@ -634,26 +634,31 @@ impl Board {
         hand
     }
 
-    pub fn give_resources(&self, players: &mut Vec<Player>, roll: usize) {
+    pub fn get_new_resources(&self, players: Vec<PlayerColor>, roll: usize) -> Vec<ResHand> {
+        let mut new_cards = Vec::with_capacity(players.len());
+        for _ in 0..players.len() {
+            new_cards.push(ResHand::new());
+        }
+
         for [r, q] in HEX_COORDS {
-            if [r, q] == self.robber {
+            if [r, q] == self.robber || self.hexes[r][q].is_none() {
                 continue;
             }
-            if let Some(hex) = self.hexes[r][q] {
-                if hex.number == roll {
-                    for corner in self.structures[r][q] {
-                        if let Some(s) = corner {
-                            let player = players.iter().position(|p| p.color == s.color).unwrap();
-                            players[player].hand[hex.resource] += match s.structure_type {
-                                StructureType::Settlement => 1,
-                                StructureType::City => 2
-                            };
+
+            let hex = self.hexes[r][q].unwrap();
+            if hex.number == roll {
+                for corner in self.structures[r][q] {
+                    if let Some(s) = corner {
+                        let idx = players.iter().position(|&color| s.color == color).unwrap();
+                        new_cards[idx].add_card(hex.resource);
+                        if s.structure_type == StructureType::City {
+                            new_cards[idx].add_card(hex.resource);
                         }
                     }
                 }
             }
         }
-        // new_cards
+        new_cards
     }
 }
 
@@ -884,6 +889,7 @@ impl Player {
 
     pub fn get_vps(&self) -> usize {
         self.base_vps
+        + self.dvs[DVCard::VictoryPoint]
         + if self.largest_army {2} else {0}
         + if self.longest_road {2} else {0}
     }
@@ -934,8 +940,12 @@ impl Player {
         self.base_vps += 1;
     }
 
-    pub fn add_cards(&mut self, new: ResHand) {
+    pub fn get_cards(&mut self, new: ResHand) {
         self.hand.add(new);
+    }
+
+    pub fn get_card(&mut self, new: Resource) {
+        self.hand.add_card(new);
     }
 
     pub fn discard_random_card<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<Resource> {
