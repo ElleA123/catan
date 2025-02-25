@@ -337,7 +337,6 @@ pub enum Port {
 
 #[derive(Debug)]
 pub struct Board {
-    num_players: usize,
     pub hexes: [[Option<Hex>; 5]; 5],
     pub ports: [Port; 9],
     pub structures: [[[Option<Structure>; 6]; 5]; 5],
@@ -476,7 +475,6 @@ impl Board {
         }
 
         Board {
-            num_players,
             hexes,
             ports,
             structures,
@@ -513,16 +511,7 @@ impl Board {
 
     pub fn get_colors_on_hex(&self, hex: [usize; 2]) -> HashSet<PlayerColor> {
         let [r, q] = hex;
-        // let mut colors = Vec::with_capacity(self.num_players);
-        // for corner in 0..6 {
-        //     if let Some(s) = self.structures[r][q][corner] {
-        //         if !colors.contains(&s.color) {
-        //             colors.push(s.color);
-        //         }
-        //     }
-        // }
-        // colors;
-        (0..6).into_iter().filter_map(|c| self.structures[r][q][c].map(|s| s.color)).collect()
+        (0..6).into_iter().filter_map(|c| self.structures[r][q][c]).map(|s| s.color).collect()
     }
 
     pub fn can_place_road(&self, edge: [usize; 3], color: PlayerColor) -> bool {
@@ -547,12 +536,6 @@ impl Board {
         )
     }
 
-    pub fn place_road(&mut self, edge: [usize; 3], color: PlayerColor) {
-        for [r, q, e] in get_dup_edges(edge) {
-            self.roads[r][q][e] = Some(color);
-        }
-    }
-
     pub fn can_place_settlement(&self, corner: [usize; 3], color: PlayerColor) -> bool {
         let [r, q, c] = corner;
 
@@ -572,7 +555,33 @@ impl Board {
         )
     }
 
+    pub fn can_place_city(&self, corner: [usize; 3], color: PlayerColor) -> bool {
+        let [r, q, c] = corner;
+        self.structure_is_color(corner, color)
+        && self.structures[r][q][c].unwrap().structure_type == StructureType::Settlement
+    }
+
+    pub fn can_place_any_road(&self, color: PlayerColor) -> bool {
+        EDGE_COORDS.iter().any(|&edge| self.can_place_road(edge, color))
+    }
+
+    pub fn can_place_any_settlement(&self, color: PlayerColor) -> bool {
+        CORNER_COORDS.iter().any(|&corner| self.can_place_settlement(corner, color))
+    }
+
+    pub fn can_place_any_city(&self, color: PlayerColor) -> bool {
+        CORNER_COORDS.iter().any(|&corner| self.can_place_city(corner, color))
+    }
+
+    pub fn place_road(&mut self, edge: [usize; 3], color: PlayerColor) {
+        self.bank.add(ROAD_HAND);
+        for [r, q, e] in get_dup_edges(edge) {
+            self.roads[r][q][e] = Some(color);
+        }
+    }
+
     pub fn place_settlement(&mut self, corner: [usize; 3], color: PlayerColor) {
+        self.bank.add(SETTLEMENT_HAND);
         for [r, q, c] in get_dup_corners(corner) {
             self.structures[r][q][c] = Some(Structure {
                 structure_type: StructureType::Settlement,
@@ -581,19 +590,38 @@ impl Board {
         }
     }
 
-    pub fn can_upgrade_to_city(&self, corner: [usize; 3], color: PlayerColor) -> bool {
-        let [r, q, c] = corner;
-        self.structure_is_color(corner, color)
-        && self.structures[r][q][c].unwrap().structure_type == StructureType::Settlement
-    }
-
-    pub fn upgrade_to_city(&mut self, corner: [usize; 3], color: PlayerColor) {
+    pub fn place_city(&mut self, corner: [usize; 3], color: PlayerColor) {
+        self.bank.add(CITY_HAND);
         for [r, q, c] in get_dup_corners(corner) {
             self.structures[r][q][c] = Some(Structure {
                 structure_type: StructureType::City,
                 color
             });
         }
+    }
+
+    pub fn place_setup_road(&mut self, edge: [usize; 3], color: PlayerColor) {
+        for [r, q, e] in get_dup_edges(edge) {
+            self.roads[r][q][e] = Some(color);
+        }
+    }
+
+    pub fn place_setup_settlement(&mut self, corner: [usize; 3], color: PlayerColor) {
+        for [r, q, c] in get_dup_corners(corner) {
+            self.structures[r][q][c] = Some(Structure {
+                structure_type: StructureType::Settlement,
+                color
+            });
+        }
+    }
+
+    pub fn can_draw_dv_card(&self) -> bool {
+        self.dv_bank.size() > 0
+    }
+
+    pub fn draw_dv_card<R: Rng + ?Sized>(&mut self, rng: &mut R) -> DVCard {
+        self.bank.add(DV_CARD_HAND);
+        self.dv_bank.discard_random(rng).unwrap()
     }
 
     pub fn get_starting_resources(&self, corner: [usize; 3]) -> ResHand {
@@ -626,14 +654,6 @@ impl Board {
             }
         }
         // new_cards
-    }
-
-    pub fn can_draw_dv_card(&self) -> bool {
-        self.dv_bank.size() != 0
-    }
-
-    pub fn draw_dv_card<R: Rng + ?Sized>(&mut self, rng: &mut R) -> DVCard {
-        self.dv_bank.discard_random(rng).unwrap()
     }
 }
 
@@ -926,42 +946,55 @@ impl Player {
         self.hand.can_discard(DV_CARD_HAND)
     }
 
+    pub fn can_build_road(&self) -> bool {
+        self.hand.can_discard(ROAD_HAND) && self.road_pool > 0
+    }
+
+    pub fn can_build_settlement(&self) -> bool {
+        self.hand.can_discard(SETTLEMENT_HAND) && self.settlement_pool > 0
+    }
+
+    pub fn can_build_city(&self) -> bool {
+        self.hand.can_discard(CITY_HAND) && self.city_pool > 0
+    }
+
     pub fn buy_dv(&mut self, dv: DVCard) {
         self.hand.discard(DV_CARD_HAND);
         self.new_dvs[dv] += 1;
     }
 
-    pub fn can_build_road(&self) -> bool {
-        self.hand.can_discard(ROAD_HAND)
-    }
-
     pub fn build_road(&mut self) {
         self.hand.discard(ROAD_HAND);
-    }
-
-    pub fn can_build_settlement(&self) -> bool {
-        self.hand.can_discard(SETTLEMENT_HAND)
+        self.road_pool -= 1;
     }
 
     pub fn build_settlement(&mut self) {
         self.hand.discard(SETTLEMENT_HAND);
         self.base_vps += 1;
+        self.settlement_pool -= 1;
     }
 
-    pub fn can_upgrade_to_city(&self) -> bool {
-        self.hand.can_discard(CITY_HAND)
+    pub fn place_setup_road(&mut self) {
+        self.road_pool -= 1;
     }
 
-    pub fn upgrade_to_city(&mut self) {
+    pub fn place_setup_settlement(&mut self) {
+        self.base_vps += 1;
+        self.settlement_pool -= 1;
+    }
+
+    pub fn build_city(&mut self) {
         self.hand.discard(CITY_HAND);
         self.base_vps += 1;
+        self.city_pool -= 1;
+        self.settlement_pool += 1;
     }
 
     pub fn play_dv_card(&mut self, card: DVCard) {
         self.dvs[card] -= 1;
         if card == DVCard::Knight {
             self.knights += 1;
-        }
+        } // etc.
     }
 
     pub fn cycle_dvs(&mut self) {

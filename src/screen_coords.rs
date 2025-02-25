@@ -42,7 +42,10 @@ pub struct ScreenCoords {
     pub button_size: f32,
     pub dice: [[f32; 2]; 2],
     pub dice_size: f32,
-    pub info_box: [f32; 4],
+    pub info_zone: [f32; 4],
+    pub robber_clickable_radius: f32,
+    pub build_clickable_radius: f32,
+    pub city_clickable_radius: f32,
 }
 
 impl ScreenCoords {
@@ -61,7 +64,10 @@ impl ScreenCoords {
             button_size: 0.0,
             dice: [[0.0; 2]; 2],
             dice_size: 0.0,
-            info_box: [0.0; 4],
+            info_zone: [0.0; 4],
+            robber_clickable_radius: 0.0,
+            build_clickable_radius: 0.0,
+            city_clickable_radius: 0.0,
         }
     }
 
@@ -73,7 +79,7 @@ impl ScreenCoords {
         let hand_zone = Zone::new(width, height, 0.0, 0.85, 0.6, 0.15);
         let menu_zone = Zone::new(width, height, 0.6, 0.85, 0.4, 0.15);
         let dice_zone = Zone::new(width, height, 0.8, 0.70, 0.2, 0.15);
-        let info_box_zone = Zone::new(width, height, 0.0, 0.0, 0.2, 0.1);
+        let info_zone_zone = Zone::new(width, height, 0.0, 0.0, 0.2, 0.1);
         // let selector_zone = Zone::new(width, height, 0.0, 0.50, 0.30, 0.35);
 
         self.hand_zone = hand_zone.as_arr();
@@ -83,11 +89,15 @@ impl ScreenCoords {
         self.update_cards(hand_zone);
         self.update_buttons(menu_zone);
         self.update_dice(dice_zone);
-        self.update_info_box(info_box_zone);
+        self.update_info_zone(info_zone_zone);
     }
 
     fn update_board_coords(&mut self, zone: Zone) {
-        self.hex_size = 0.1 * min(zone.width, zone.height);
+        let hex_size = 0.1 * min(zone.width, zone.height);
+        self.hex_size = hex_size;
+        self.build_clickable_radius = 0.2 * hex_size;
+        self.city_clickable_radius = 0.04 * hex_size;
+        self.robber_clickable_radius = 0.5 * hex_size;
 
         self.update_centers(&zone);
         self.update_corners(&zone);
@@ -226,6 +236,7 @@ impl ScreenCoords {
 
     fn update_buttons(&mut self, zone: Zone) {
         let Zone { x, y, width, height } = zone;
+
         let button_size = min(height, width / 5.0);
         self.button_size = button_size;
 
@@ -240,60 +251,55 @@ impl ScreenCoords {
 
     fn update_dice(&mut self, zone: Zone) {
         let Zone { x, y, width, height } = zone;
-        let dice_size = 0.4 * min(0.4 * width, 0.8 * height);
+        let dice_size = min(0.4 * width, 0.8 * height);
+        self.dice_size = dice_size;
+
         let y = y + 0.5 * height - 0.5 * dice_size;
         let x1 = x + 0.5 * width - 1.1 * dice_size;
         let x2 = x + 0.5 * width + 0.1 * dice_size;
         self.dice = [[x1, y], [x2, y]];
     }
 
-    fn update_info_box(&mut self, zone: Zone) {
-        self.info_box = zone.as_arr();
+    fn update_info_zone(&mut self, zone: Zone) {
+        self.info_zone = zone.as_arr();
     }
 }
 
-fn get_dice(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [[f32; 2]; 2] {
-    let y = y + height - 1.1 * scale;
-    let x1 = x + width - 2.2 * scale;
-    let x2 = x + width - 1.1 * scale;
-    [[x1, y], [x2, y]]
-}
+// fn get_selected_cards(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
+//     let shift = scale;
 
-fn get_selected_cards(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
-    let shift = scale;
-
-    let start_x = x + shift - 0.7 * scale;
-    let y = y + 0.25 * height - 0.5 * scale;
+//     let start_x = x + shift - 0.7 * scale;
+//     let y = y + 0.25 * height - 0.5 * scale;
     
-    let mut cards = [[0.0, y]; 5];
-    for i in 0..cards.len() {
-        cards[i] = [start_x + i as f32 * shift, y];
-    }
-    cards
-}
+//     let mut cards = [[0.0, y]; 5];
+//     for i in 0..cards.len() {
+//         cards[i] = [start_x + i as f32 * shift, y];
+//     }
+//     cards
+// }
 
-fn get_pool_cards(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
-    let shift = scale;
+// fn get_pool_cards(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
+//     let shift = scale;
 
-    let start_x = x + shift - 0.7 * scale;
-    let y = y + 0.75 * height - 0.5 * scale;
+//     let start_x = x + shift - 0.7 * scale;
+//     let y = y + 0.75 * height - 0.5 * scale;
     
-    let mut cards = [[0.0, y]; 5];
-    for i in 0..cards.len() {
-        cards[i] = [start_x + i as f32 * shift, y];
-    }
-    cards
-}
+//     let mut cards = [[0.0, y]; 5];
+//     for i in 0..cards.len() {
+//         cards[i] = [start_x + i as f32 * shift, y];
+//     }
+//     cards
+// }
 
-fn get_selector_buttons(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
-    let shift = scale;
+// fn get_selector_buttons(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
+//     let shift = scale;
 
-    let start_x = x + shift - 0.7 * scale;
-    let y = y + 0.9 * height - 0.5 * 0.7 * scale;
+//     let start_x = x + shift - 0.7 * scale;
+//     let y = y + 0.9 * height - 0.5 * 0.7 * scale;
     
-    let mut cards = [[0.0, y]; 5];
-    for i in 0..cards.len() {
-        cards[i] = [start_x + i as f32 * shift, y];
-    }
-    cards
-}
+//     let mut cards = [[0.0, y]; 5];
+//     for i in 0..cards.len() {
+//         cards[i] = [start_x + i as f32 * shift, y];
+//     }
+//     cards
+// }
