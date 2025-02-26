@@ -115,6 +115,12 @@ impl ResHand {
         ResHand([0; 5])
     }
 
+    pub fn from_monopoly(resource: Resource, count: usize) -> ResHand {
+        let mut  hand = ResHand::new();
+        hand[resource] = count;
+        hand
+    }
+
     pub fn clear(&mut self) {
         for res in RESOURCES {
             self[res] = 0;
@@ -130,7 +136,6 @@ impl ResHand {
     }
 
     pub fn nth_nonzero(&self, n: usize) -> Option<Resource> {
-        println!("finding {n}th resource card");
         RESOURCES.iter().copied().filter(|c| self[*c] > 0).nth(n)
     }
 
@@ -162,6 +167,10 @@ impl ResHand {
                 self[res] = 0;
             }
         }
+    }
+
+    pub fn discard_all(&mut self, resource: Resource) {
+        self[resource] = 0;
     }
 
     pub fn discard_random<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<Resource> {
@@ -238,7 +247,6 @@ impl DVHand {
     }
 
     pub fn nth_nonzero(&self, n: usize) -> Option<DVCard> {
-        println!("finding {n}th dv card");
         DV_CARDS.iter().copied().filter(|c| self[*c] > 0).nth(n)
     }
 
@@ -493,7 +501,12 @@ impl Board {
         }
     }
 
-    fn structure_is_color(&self, corner: [usize; 3], color: PlayerColor) -> bool {
+    pub fn structure_exists(&self, corner: [usize; 3]) -> bool {
+        let [r, q, c] = corner;
+        self.structures[r][q][c].is_some()
+    }
+
+    pub fn structure_is_color(&self, corner: [usize; 3], color: PlayerColor) -> bool {
         let [r, q, c] = corner;
         match self.structures[r][q][c] {
             Some(structure) => structure.color == color,
@@ -501,12 +514,18 @@ impl Board {
         }
     }
 
-    fn structure_isnt_color(&self, corner: [usize; 3], color: PlayerColor) -> bool {
+    pub fn structure_isnt_color(&self, corner: [usize; 3], color: PlayerColor) -> bool {
         let [r, q, c] = corner;
         match self.structures[r][q][c] {
             Some(c) => c.color != color,
             None => false
         }
+    }
+
+    pub fn is_robbable(&self, corner: [usize; 3], robber: PlayerColor) -> bool {
+        hexes_touched(corner).any(|hex| hex == self.robber)
+        && self.structure_exists(corner)
+        && self.structure_isnt_color(corner, robber)
     }
 
     pub fn get_colors_on_hex(&self, hex: [usize; 2]) -> HashSet<PlayerColor> {
@@ -865,10 +884,10 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(color: PlayerColor) -> Player {
+    pub fn new(color: PlayerColor, is_human: bool) -> Player {
         Player {
             color,
-            is_human: true,
+            is_human,
             base_vps: 0,
             hand: ResHand::new(),
             dvs: DVHand::new(),
@@ -948,6 +967,14 @@ impl Player {
         self.hand.add_card(new);
     }
 
+    pub fn discard_cards(&mut self, lost: ResHand) {
+        self.hand.discard(lost);
+    }
+
+    pub fn discard_all(&mut self, lost: Resource) {
+        self.hand.discard_all(lost);
+    }
+
     pub fn discard_random_card<R: Rng + ?Sized>(&mut self, rng: &mut R) -> Option<Resource> {
         self.hand.discard_random(rng)
     }
@@ -1004,7 +1031,7 @@ impl Player {
         self.dvs[card] -= 1;
         if card == DVCard::Knight {
             self.knights += 1;
-        } // etc.
+        }
     }
 
     pub fn cycle_dvs(&mut self) {

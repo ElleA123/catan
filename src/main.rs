@@ -1,5 +1,3 @@
-use core::num;
-
 use macroquad::{
     input::{is_mouse_button_pressed, mouse_position, MouseButton}, window
 };
@@ -24,10 +22,15 @@ pub struct SetupState {
 }
 
 impl SetupState {
-    fn new<R: Rng + ?Sized>(num_players: usize, rng: &mut R) -> SetupState {
+    fn new<R: Rng + ?Sized>(num_humans: usize, num_cpus: usize, rng: &mut R) -> SetupState {
+        let num_players = num_humans + num_cpus;
+
         let board = Board::new(num_players, rng);
-        let players = PLAYER_COLORS.choose_multiple(rng, num_players)
-            .map(|pc| Player::new(*pc))
+        let players = PLAYER_COLORS
+            .iter().copied()
+            .enumerate().collect::<Vec<(usize, PlayerColor)>>()
+            .choose_multiple(rng, num_players)
+            .map(|&(i, pc)| Player::new(pc, i < num_humans))
             .collect();
 
         SetupState {
@@ -105,19 +108,77 @@ impl SetupState {
     }
 }
 
-enum Action {
+pub enum Action {
     Idling,
     Discarding,
     MovingRobber,
+    ChoosingVictim,
     BuildingRoad,
     BuildingSettlement,
     BuildingCity,
 }
 
-enum RngAction {
+pub enum RngAction {
     RollingDice,
     Stealing(PlayerColor),
     BuyingDV,
+}
+
+pub enum Selector {
+    Discarding(ResHand),
+    Trading(ResHand, ResHand),
+    Yopping(ResHand),
+    Monopolizing(ResHand),
+}
+
+impl Selector {
+    pub fn get_bottom(&self) -> ResHand {
+        match self {
+            Selector::Discarding(hand) => *hand,
+            Selector::Trading(give, _) => *give,
+            Selector::Yopping(hand) => *hand,
+            Selector::Monopolizing(hand) => *hand,
+        }
+    }
+
+    pub fn get_top(&self) -> Option<ResHand> {
+        match self {
+            Selector::Trading(_, get) => Some(*get),
+            _ => None
+        }
+    }
+
+    pub fn get_bottom_mut(&mut self) -> &mut ResHand {
+        match self {
+            Selector::Discarding(hand) => hand,
+            Selector::Trading(give, _) => give,
+            Selector::Yopping(hand) => hand,
+            Selector::Monopolizing(hand) => hand,
+        }
+    }
+
+    pub fn get_top_mut(&mut self) -> &mut ResHand {
+        match self {
+            Selector::Trading(_, get) => get,
+            _ => panic!("Selector::get_top_mut(): no top")
+        }
+    }
+
+    pub fn add_top_card(&mut self, card: Resource) {
+        self.get_top_mut()[card] += 1;
+    }
+
+    pub fn add_bottom_card(&mut self, card: Resource) {
+        self.get_bottom_mut()[card] += 1;
+    }
+
+    pub fn discard_top_card(&mut self, card: Resource) {
+        self.get_top_mut()[card] -= 1;
+    }
+
+    pub fn discard_bottom_card(&mut self, card: Resource) {
+        self.get_bottom_mut()[card] -= 1;
+    }
 }
 
 pub struct GameState {
@@ -129,10 +190,13 @@ pub struct GameState {
     longest_road: Option<PlayerColor>,
     longest_road_size: usize,
     current_player: usize,
-    action: Action,
+    turn_player: usize,
     roll: Option<[usize; 2]>,
     played_dv: bool,
+    selector: Option<Selector>,
     offered_trades: Vec<(ResHand, ResHand)>,
+    trade_responses: Vec<Vec<bool>>,
+    action: Action,
     rng_action: Option<RngAction>,
 }
 
@@ -147,44 +211,49 @@ impl From<SetupState> for GameState {
             longest_road: None,
             longest_road_size: 4,
             current_player: 0,
-            action: Action::Idling,
+            turn_player: 0,
             roll: None,
             played_dv: false,
-            offered_trades: Vec::new(),
+            selector: None,
+            offered_trades: Vec::with_capacity(3),
+            trade_responses: Vec::with_capacity(3),
+            action: Action::Idling,
             rng_action: None,
         }
     }
 }
 
 impl GameState {
-    // fn new<R: Rng + ?Sized>(num_players: usize, rng: &mut R) -> GameState {
-    //     let board = Board::new(num_players, rng);
-    //     let players = PLAYER_COLORS.choose_multiple(rng, num_players)
-    //         .map(|pc| Player::new(*pc))
-    //         .collect();
+    fn new<R: Rng + ?Sized>(num_humans: usize, num_cpus: usize, rng: &mut R) -> GameState {
+        let num_players = num_humans + num_cpus;
 
-    //     GameState {
-    //         num_players,
-    //         board,
-    //         players,
-    //         largest_army: None,
-    //         largest_army_size: 2,
-    //         longest_road: None,
-    //         longest_road_size: 4,
-    //         current_player: 0,
-    //         action: Action::Idling,
-    //         rolling_dice: false,
-    //         roll: None,
-    //         played_dv: false,
-    //         discarding: None,
-    //         stealing_from: None,
-    //         yopping: None,
-    //         monopolizing: None,
-    //         offering_trade: false,
-    //         offered_trades: Vec::new(),
-    //         passing_turn: false,
-    //     }
-    // }
+        let board = Board::new(num_players, rng);
+        let players = PLAYER_COLORS
+            .iter().copied()
+            .enumerate().collect::<Vec<(usize, PlayerColor)>>()
+            .choose_multiple(rng, num_players)
+            .map(|&(i, pc)| Player::new(pc, i < num_humans))
+            .collect();
+
+        GameState {
+            num_players,
+            board,
+            players,
+            largest_army: None,
+            largest_army_size: 2,
+            longest_road: None,
+            longest_road_size: 4,
+            current_player: 0,
+            turn_player: 0,
+            action: Action::Idling,
+            roll: None,
+            played_dv: false,
+            selector: None,
+            offered_trades: Vec::with_capacity(3),
+            trade_responses: Vec::with_capacity(3),
+            rng_action: None
+        }
+    }
 
     fn get_current_color(&self) -> PlayerColor {
         self.get_current_player().get_color()
@@ -264,6 +333,20 @@ impl GameState {
         }
     }
 
+    fn move_robber(&mut self, hex: [usize; 2]) {
+        self.board.robber = hex;
+        let robbable = self.board.get_colors_on_hex(hex);
+        if robbable.len() == 0 {
+            self.action = Action::Idling;
+            return;
+        } else if robbable.len() == 1 {
+            self.action = Action::Idling;
+            self.rng_action = Some(RngAction::Stealing(robbable.into_iter().nth(0).unwrap()));
+        } else {
+            self.action = Action::ChoosingVictim;
+        }
+    }
+
     fn buy_dv_card<R: Rng + ?Sized>(&mut self, rng: &mut R) {
         let dv = self.board.draw_dv_card(rng);
         self.get_current_player_mut().buy_dv(dv);
@@ -297,15 +380,150 @@ impl GameState {
         }
     }
 
+    fn someone_must_discard(&self) -> bool {
+        self.players.iter().any(|p| p.must_discard())
+    }
+
+    fn initiate_discarding(&mut self) {
+        self.action = Action::Discarding;
+        self.selector = Some(Selector::Discarding(ResHand::new()));
+        while !self.players[self.current_player].must_discard() {
+            self.current_player = (self.current_player + 1) % self.num_players;
+        }
+    }
+
+    fn can_add_to_bottom(&self, card: Resource) -> bool {
+        let pool = self.get_current_player().get_hand()[card];
+        match self.selector.as_ref().unwrap() {
+            Selector::Discarding(hand) => hand[card] < pool,
+            Selector::Trading(give, _) => give[card] < pool,
+            Selector::Yopping(hand) => hand.size() < 2,
+            Selector::Monopolizing(hand) => hand.size() < 1
+        }
+    }
+
+    fn can_add_to_top(&self, card: Resource) -> bool {
+        match self.selector.as_ref().unwrap() {
+            Selector::Trading(_, get) => get[card] < 19,
+            _ => false
+        }
+    }
+
+    fn can_discard_from_bottom(&self, card: Resource) -> bool {
+        let hand = match self.selector.as_ref().unwrap() {
+            Selector::Discarding(hand) => hand,
+            Selector::Trading(give, _) => give,
+            Selector::Yopping(hand) => hand,
+            Selector::Monopolizing(hand) => hand,
+        };
+        hand[card] > 0
+    }
+
+    fn can_discard_from_top(&self, card: Resource) -> bool {
+        match self.selector.as_ref().unwrap() {
+            Selector::Trading(_, get) => get[card] > 0,
+            _ => false
+        }
+    }
+
+    fn get_selector(&self) -> &Selector {
+        self.selector.as_ref().unwrap()
+    }
+
+    fn get_selector_mut(&mut self) -> &mut Selector {
+        self.selector.as_mut().unwrap()
+    }
+
+    fn can_cancel_selector(&self) -> bool {
+        match self.selector.as_ref().unwrap() {
+            Selector::Discarding(_) => false,
+            _ => true
+        }
+    }
+
+    fn can_execute_selector(&self) -> bool {
+        match self.selector.as_ref().unwrap() {
+            Selector::Discarding(hand) =>
+                hand.size() == self.get_current_player().get_hand().size() / 2,
+            Selector::Trading(give, get) => trade_is_reasonable(*give, *get),
+            Selector::Yopping(hand) => hand.size() == 2,
+            Selector::Monopolizing(hand) => hand.size() == 1,
+        }
+    }
+
+    fn execute_discard(&mut self, hand: ResHand) {
+        self.get_current_player_mut().discard_cards(hand);
+        while !self.players[self.current_player].must_discard() {
+            self.current_player = (self.current_player + 1) % self.num_players;
+            if self.current_player == self.turn_player {
+                self.action = Action::MovingRobber;
+                return;
+            }
+        }
+        self.selector = Some(Selector::Discarding(ResHand::new()));
+    }
+
+    fn execute_trade(&mut self, give: ResHand, get: ResHand) {
+        self.offered_trades.push((give, get));
+        self.selector = Some(Selector::Trading(ResHand::new(), ResHand::new()))
+    }
+
+    fn execute_yop(&mut self, hand: ResHand) {
+        self.get_current_player_mut().play_dv_card(DVCard::YearOfPlenty);
+        self.get_current_player_mut().get_cards(hand);
+    }
+
+    fn execute_monopoly(&mut self, card: Resource) {
+        self.get_current_player_mut().play_dv_card(DVCard::Monopoly);
+
+        let monopolizer = self.get_current_color();
+        let mut gained = 0;
+        for player in self.players.iter_mut() {
+            if !player.is_color(monopolizer) {
+                gained += player.get_hand()[card];
+                player.discard_all(card);
+            }
+        }
+        let monopolied = ResHand::from_monopoly(card, gained);
+        self.get_current_player_mut().get_cards(monopolied);
+    }
+
+    fn execute_selector(&mut self) {
+        let Some(selector) = self.selector.take() else { panic!("execute_selector(): selector to execute!") };
+        match selector {
+            Selector::Discarding(hand) =>
+                self.execute_discard(hand),
+            Selector::Trading(give, get) =>
+                self.execute_trade(give, get),
+            Selector::Yopping(hand) =>
+                self.execute_yop(hand),
+            Selector::Monopolizing(hand) =>
+                self.execute_monopoly(hand.nth_nonzero(0).unwrap())
+        }
+    }
+
+    fn cancel_selector(&mut self) {
+        self.selector = None;
+    }
+
+    fn open_trade_menu(&mut self) {
+        self.selector = Some(Selector::Trading(ResHand::new(), ResHand::new()));
+    }
+
     fn pass_turn(&mut self) {
         self.get_current_player_mut().cycle_dvs();
 
-        self.current_player = (self.current_player + 1) % self.num_players;
+        self.turn_player = (self.turn_player + 1) % self.num_players;
+        self.current_player = self.turn_player;
         self.roll = None;
         self.played_dv = false;
         self.offered_trades.clear();
         self.action = Action::Idling;
     }
+}
+
+fn trade_is_reasonable(give: ResHand, get: ResHand) -> bool {
+    give.size() > 0 && get.size() > 0 && RESOURCES.iter().all(|&res| give[res] == 0 || get[res] == 0)
 }
 
 fn mouse_is_on_circle(mouse_pos: (f32, f32), center: [f32; 2], radius: f32) -> bool {
@@ -362,7 +580,7 @@ async fn setup_game(mut state: SetupState) -> GameState {
         }
 
         if state.finished {
-            return state.into()
+            return state.into();
         }
 
         render_setup_screen(&coords, &state, state.get_current_color());
@@ -371,17 +589,88 @@ async fn setup_game(mut state: SetupState) -> GameState {
     }
 }
 
+fn handle_selector_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f32, f32)) -> bool {
+    let buttons = &coords.selector_buttons;
+    let button_size = coords.selector_button_size;
+
+    if mouse_is_on_rect(mouse_pos, buttons[0], button_size, button_size) {
+        if state.can_cancel_selector() {
+            state.cancel_selector();
+        }
+        return true;
+    }
+    if mouse_is_on_rect(mouse_pos, buttons[1], button_size, button_size) {
+        if state.can_execute_selector() {
+            state.execute_selector();
+        }
+        return true;
+    }
+
+    let [selector_card_width, selector_card_height] = coords.selector_card_size;
+    let selector_size = coords.selector_selector_size;
+
+    if let Some(idx) = coords.selector_bottom_cards.iter().position(
+        |pos| mouse_is_on_rect(mouse_pos, *pos, selector_card_width, selector_card_height)
+    ) {
+        let card = RESOURCES[idx];
+        if state.can_discard_from_bottom(card) {
+            state.get_selector_mut().discard_bottom_card(card);
+        }
+        return true;
+    }
+    else if let Some(idx) = coords.selector_bottom_selectors.iter().position(
+        |pos| mouse_is_on_rect(mouse_pos, *pos, selector_size, selector_size)
+    ) {
+        let card = RESOURCES[idx];
+        if state.can_add_to_bottom(card) {
+            state.get_selector_mut().add_bottom_card(card);
+        }
+    }
+
+    match state.get_selector() {
+        Selector::Trading(_, _) => (),
+        _ => return false
+    };
+
+    if let Some(idx) = coords.selector_top_cards.iter().position(
+        |pos| mouse_is_on_rect(mouse_pos, *pos, selector_card_width, selector_card_height)
+    ) {
+        let card = RESOURCES[idx];
+        if state.can_discard_from_top(card) {
+            state.get_selector_mut().discard_top_card(card);
+        }
+        return true;
+    }
+    else if let Some(idx) = coords.selector_top_selectors.iter().position(
+        |pos| mouse_is_on_rect(mouse_pos, *pos, selector_size, selector_size)
+    ) {
+        let card = RESOURCES[idx];
+        if state.can_add_to_top(card) {
+            state.get_selector_mut().add_top_card(card);
+        }
+        return true;
+    }
+    return false;
+}
+
 fn handle_idling_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f32, f32)) {
+    if state.selector.is_none()
+    && mouse_is_on_rect(mouse_pos, coords.trade_button, coords.trade_button_size, coords.trade_button_size) {
+        state.open_trade_menu();
+        return;
+    }
+
     let [card_width, card_height] = coords.card_size;
     if let Some(n) = coords.cards.iter().position(
         |pos| mouse_is_on_rect(mouse_pos, *pos, card_width, card_height)
     ) {
         let num_resources = state.get_current_player().get_hand().count_nonzero();
         if n >= num_resources {
-            let card = state.get_current_player().get_combined_dvs().nth_nonzero(n - num_resources).unwrap();
-            let playable_dvs = state.get_current_player().get_dvs();
-            if playable_dvs[card] > 0 {
-                state.play_dv_card(card);
+            if let Some(card) = state.get_current_player().get_combined_dvs().nth_nonzero(n - num_resources) {
+                let playable_dvs = state.get_current_player().get_dvs();
+                if playable_dvs[card] > 0 {
+                    state.play_dv_card(card);
+                }
             }
         }
         return;
@@ -428,14 +717,39 @@ fn handle_idling_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: 
         }
         return;
     }
+
+    if state.selector.is_some() && handle_selector_click(state, coords, mouse_pos) {
+        return;
+    }
 }
 
 fn handle_discarding_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f32, f32)) {
-    
+    if state.selector.is_some() {
+        handle_selector_click(state, coords, mouse_pos);
+    }
 }
 
-fn handle_robber_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f32, f32)) {
-    
+fn handle_moving_robber_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f32, f32)) {
+    let radius = coords.robber_clickable_radius;
+    if let Some(idx) = coords.centers.iter().position(
+        |pos| mouse_is_on_circle(mouse_pos, *pos, radius)
+    ) {
+        state.move_robber(HEX_COORDS[idx]);
+    }
+}
+
+fn handle_choosing_victim_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f32, f32)) {
+    let radius = coords.build_clickable_radius;
+    if let Some(idx) = coords.corners.iter().position(
+        |pos| mouse_is_on_circle(mouse_pos, *pos, radius)
+    ) {
+        let corner = CORNER_COORDS[idx];
+        let [r, q, c] = corner;
+        if state.board.is_robbable(corner, state.get_current_color()) {
+            let color = state.board.structures[r][q][c].as_ref().unwrap().color;
+            state.rng_action = Some(RngAction::Stealing(color));
+        }
+    }
 }
 
 fn handle_road_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f32, f32)) {
@@ -489,20 +803,27 @@ fn handle_click(state: &mut GameState, coords: &ScreenCoords) {
     match state.action {
         Action::Idling => handle_idling_click(state, coords, mouse_pos),
         Action::Discarding => handle_discarding_click(state, coords, mouse_pos),
-        Action::MovingRobber => handle_robber_click(state, coords, mouse_pos),
+        Action::MovingRobber => handle_moving_robber_click(state, coords, mouse_pos),
+        Action::ChoosingVictim => handle_choosing_victim_click(state, coords, mouse_pos),
         Action::BuildingRoad => handle_road_click(state, coords, mouse_pos),
         Action::BuildingSettlement => handle_structure_click(state, coords, mouse_pos, StructureType::Settlement),
         Action::BuildingCity => handle_structure_click(state, coords, mouse_pos, StructureType::City),
     }
 }
 
-#[macroquad::main("Catan")]
-async fn main() {
-    let mut rng = rand::rng();
-    let num_players = 4;
+async fn play_one_player_game(num_cpus: usize) {
+    if num_cpus == 0 || num_cpus > 3 { panic!("Error: bad amount of CPUs"); }
 
-    let state = SetupState::new(num_players, &mut rng);
-    let mut state = setup_game(state).await;
+    let mut rng = rand::rng();
+
+    // let state = SetupState::new(1, num_cpus, &mut rng);
+    // let mut state = setup_game(state).await;
+
+    let mut state = GameState::new(1, num_cpus, &mut rng);
+    state.board.place_settlement([2, 2, 3], PlayerColor::Blue);
+    state.board.place_settlement([2, 2, 5], PlayerColor::Red);
+    state.board.place_settlement([2, 2, 1], PlayerColor::Orange);
+    state.board.place_settlement([0, 2, 0], PlayerColor::Red);
 
     let mut coords = ScreenCoords::new();
 
@@ -516,30 +837,40 @@ async fn main() {
         if let Some(rng_action) = &state.rng_action {
             match rng_action {
                 RngAction::RollingDice => {
-                    let mut sum = 7;
-                    while sum == 7 {
-                        sum = state.roll_dice(&mut rng);
+                    let sum = state.roll_dice(&mut rng);
+                    if sum != 7 {
+                        state.give_resources(sum);
                     }
-                    state.give_resources(sum);
-
-                    state.rng_action = None;
+                    else {
+                        if state.someone_must_discard() {
+                            state.initiate_discarding();
+                        } else {
+                            state.action = Action::MovingRobber;
+                        }
+                    }
                 },
                 RngAction::Stealing(color) => {
                     let stolen = state.get_player_mut(*color).unwrap().discard_random_card(&mut rng);
                     if let Some(res) = stolen {
                         state.get_current_player_mut().get_card(res);
                     }
-                    state.rng_action = None;
+                    state.action = Action::Idling;
                 },
                 RngAction::BuyingDV => {
                     state.buy_dv_card(&mut rng);
-                    state.rng_action = None;
                 },
             }
+            state.rng_action = None;
         }
 
         render_screen(&coords, &state, state.get_current_color());
 
         window::next_frame().await
     }
+}
+
+#[macroquad::main("Catan")]
+async fn main() {
+    let num_cpus = 3;
+    play_one_player_game(num_cpus).await;
 }

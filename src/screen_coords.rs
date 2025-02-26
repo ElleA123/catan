@@ -37,6 +37,17 @@ pub struct ScreenCoords {
     pub hand_zone: [f32; 4],
     pub cards: [[f32; 2]; 10],
     pub card_size: [f32; 2],
+    pub trade_button: [f32; 2],
+    pub trade_button_size: f32,
+    pub selector_zone: [f32; 4],
+    pub selector_top_cards: [[f32; 2]; 5],
+    pub selector_bottom_cards: [[f32; 2]; 5],
+    pub selector_card_size: [f32; 2],
+    pub selector_top_selectors: [[f32; 2]; 5],
+    pub selector_bottom_selectors: [[f32; 2]; 5],
+    pub selector_selector_size: f32,
+    pub selector_buttons: [[f32; 2]; 2],
+    pub selector_button_size: f32,
     pub menu_zone: [f32; 4],
     pub buttons: [[f32; 2]; 5],
     pub button_size: f32,
@@ -50,7 +61,7 @@ pub struct ScreenCoords {
 
 impl ScreenCoords {
     pub fn new() -> ScreenCoords {
-        ScreenCoords {
+        let mut coords = ScreenCoords {
             centers: [[0.0; 2]; 19],
             corners: [[0.0; 2]; 54],
             edges: [[0.0; 2]; 72],
@@ -59,6 +70,17 @@ impl ScreenCoords {
             hand_zone: [0.0; 4],
             cards: [[0.0; 2]; 10],
             card_size: [0.0; 2],
+            trade_button: [0.0; 2],
+            trade_button_size: 0.0,
+            selector_zone: [0.0; 4],
+            selector_top_cards: [[0.0; 2]; 5],
+            selector_bottom_cards: [[0.0; 2]; 5],
+            selector_card_size: [0.0; 2],
+            selector_top_selectors: [[0.0; 2]; 5],
+            selector_bottom_selectors: [[0.0; 2]; 5],
+            selector_selector_size: 0.0,
+            selector_buttons: [[0.0; 2]; 2],
+            selector_button_size: 0.0,
             menu_zone: [0.0; 4],
             buttons: [[0.0; 2]; 5],
             button_size: 0.0,
@@ -68,7 +90,9 @@ impl ScreenCoords {
             robber_clickable_radius: 0.0,
             build_clickable_radius: 0.0,
             city_clickable_radius: 0.0,
-        }
+        };
+        coords.update();
+        coords
     }
 
     pub fn update(&mut self) {
@@ -76,17 +100,20 @@ impl ScreenCoords {
         let height = screen_height();
 
         let board_zone = Zone::new(width, height, 0.0, 0.0, 1.0, 0.85);
-        let hand_zone = Zone::new(width, height, 0.0, 0.85, 0.6, 0.15);
-        let menu_zone = Zone::new(width, height, 0.6, 0.85, 0.4, 0.15);
-        let dice_zone = Zone::new(width, height, 0.8, 0.70, 0.2, 0.15);
-        let info_zone_zone = Zone::new(width, height, 0.0, 0.0, 0.2, 0.1);
-        // let selector_zone = Zone::new(width, height, 0.0, 0.50, 0.30, 0.35);
+        let hand_zone = Zone::new(width, height, 0.0, 0.85, 0.60, 0.15);
+        let trade_button_zone = Zone::new(width, height, 0.0, 0.75, 0.10, 0.10);
+        let menu_zone = Zone::new(width, height, 0.60, 0.85, 0.40, 0.15);
+        let dice_zone = Zone::new(width, height, 0.80, 0.70, 0.20, 0.15);
+        let info_zone_zone = Zone::new(width, height, 0.0, 0.0, 0.20, 0.10);
+        let selector_zone = Zone::new(width, height, 0.0, 0.45, 0.25, 0.40);
 
         self.hand_zone = hand_zone.as_arr();
         self.menu_zone = menu_zone.as_arr();
 
         self.update_board_coords(board_zone);
         self.update_cards(hand_zone);
+        self.update_trade_button(trade_button_zone);
+        self.update_selector(selector_zone);
         self.update_buttons(menu_zone);
         self.update_dice(dice_zone);
         self.update_info_zone(info_zone_zone);
@@ -232,6 +259,51 @@ impl ScreenCoords {
         for idx in 0..self.cards.len() {
             self.cards[idx] = [start_x + idx as f32 * shift, card_y];
         }
+    }
+
+    fn update_trade_button(&mut self, zone: Zone) {
+        let Zone { x, y, width, height, .. } = zone;
+        self.trade_button_size = min(width, height);
+        self.trade_button = [x, y];
+    }
+
+    fn update_selector(&mut self, zone: Zone) {
+        self.selector_zone = zone.as_arr();
+        self.update_selector_cards(&zone);
+        self.update_selector_buttons(&zone);
+    }
+
+    fn update_selector_cards(&mut self, zone: &Zone) {
+        let &Zone { x, y, width, height } = zone;
+
+        let card_height = min(0.9 * height, width / 5.6);
+        let card_width = 0.7 * card_height;
+        self.selector_card_size = [card_width, card_height];
+        self.selector_selector_size = card_width;
+
+        let shift = card_height;
+        let start_x = x + shift - card_width;
+        let top_card_y = y + 0.40 * height - 0.5 * card_height;
+        let bottom_card_y = y + 0.65 * height - 0.5 * card_height;
+        let top_selector_y = y + 0.15 * height - 0.5 * self.selector_selector_size;
+        let bottom_selector_y = y + 0.90 * height - 0.5 * self.selector_selector_size;
+        
+        for idx in 0..self.selector_top_cards.len() {
+            self.selector_top_cards[idx] = [start_x + idx as f32 * shift, top_card_y];
+            self.selector_bottom_cards[idx] = [start_x + idx as f32 * shift, bottom_card_y];
+            self.selector_top_selectors[idx] = [start_x + idx as f32 * shift, top_selector_y];
+            self.selector_bottom_selectors[idx] = [start_x + idx as f32 * shift, bottom_selector_y];
+        }
+    }
+
+    fn update_selector_buttons(&mut self, zone: &Zone) {
+        let &Zone { x, y, width, height } = zone;
+
+        let button_size = min(height / 2.0, 0.2 * width);
+        self.selector_button_size = button_size;
+
+        self.selector_buttons[0] = [x + width, y + height - button_size];
+        self.selector_buttons[1] = [x + width, y + height - 2.0 * button_size];
     }
 
     fn update_buttons(&mut self, zone: Zone) {

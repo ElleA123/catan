@@ -1,10 +1,11 @@
 use macroquad::prelude::*;
 
 use crate::game::{
-    Board, DVCard, Hex, Player, PlayerColor, Port, Resource, StructureType, CORNER_COORDS, DV_CARDS, EDGE_COORDS, HEX_COORDS, RESOURCES
+    Board, DVCard, Hex, Player, PlayerColor, Port, ResHand, Resource, StructureType,
+    CORNER_COORDS, DV_CARDS, EDGE_COORDS, HEX_COORDS, RESOURCES
 };
 use crate::screen_coords::ScreenCoords;
-use crate::{Action, GameState, SetupState};
+use crate::{Action, GameState, Selector, SetupState};
 
 const SQRT_3: f32 = 1.732050807568877293527446341505872367_f32;
 
@@ -327,120 +328,31 @@ fn render_dice(coords: &ScreenCoords, state: &GameState) {
 }
 
 fn render_info_box(coords: &ScreenCoords, player: &Player) {
-    let &[x, y, _width, height] = &coords.info_zone;
+    let &[x, y, width, height] = &coords.info_zone;
     let vps = player.get_vps().to_string();
 
+    draw_rectangle(x, y, width, height, player.get_color().into());
     draw_text(vps.as_str(), x, y + height, 40.0, BLACK);
 }
-
-/*
-fn get_selected_cards(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
-    let shift = scale;
-
-    let start_x = x + shift - 0.7 * scale;
-    let y = y + 0.25 * height - 0.5 * scale;
-    
-    let mut cards = [[0.0, y]; 5];
-    for i in 0..cards.len() {
-        cards[i] = [start_x + i as f32 * shift, y];
-    }
-    cards
-}
-
-fn get_pool_cards(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
-    let shift = scale;
-
-    let start_x = x + shift - 0.7 * scale;
-    let y = y + 0.75 * height - 0.5 * scale;
-    
-    let mut cards = [[0.0, y]; 5];
-    for i in 0..cards.len() {
-        cards[i] = [start_x + i as f32 * shift, y];
-    }
-    cards
-}
-
-fn get_selector_buttons(x: f32, y: f32, _width: f32, height: f32, scale: f32) -> [[f32; 2]; 5] {
-    let shift = scale;
-
-    let start_x = x + shift - 0.7 * scale;
-    let y = y + 0.9 * height - 0.5 * 0.7 * scale;
-    
-    let mut cards = [[0.0, y]; 5];
-    for i in 0..cards.len() {
-        cards[i] = [start_x + i as f32 * shift, y];
-    }
-    cards
-}
-
-fn render_selector_button(pos: [f32; 2], size: f32) {
-    let thickness = size / 20.0;
-    let [x, y] = pos;
-    draw_rectangle(x, y, size, size, WHITE);
-    draw_rectangle_lines(x, y, size, size, thickness, BLACK);
-    draw_text("v", x + 0.4 * size, y + 0.6 * size, size, BLACK);
-}
-
-fn render_selector_base(zone: Zone, selected: &ResHand, pool: Option<&ResHand>) -> ([[f32; 2]; 10], f32) {
-    let Zone { x, y, width, height } = zone;
-    let scale = 0.3 * height;
-    let button_size = 0.7 * scale;
-    let selected_cards = get_selected_cards(x, y, width, height, scale);
-    let pool_cards = get_pool_cards(x, y, width, height, scale);
-    let buttons = get_selector_buttons(x, y, width, height, scale);
-
-    draw_rectangle(x, y, width, height, BEIGE);
-    for resource in RESOURCES {
-        if selected[resource] > 0 {
-            render_resource(selected_cards[resource as usize], resource, selected[resource].to_string().as_str(), scale);
-        }
-    }
-
-    if let Some(pool) = pool {
-        for resource in RESOURCES {
-            let remaining = pool[resource] - selected[resource];
-            render_resource(pool_cards[resource as usize], resource, remaining.to_string().as_str(), scale);
-        }
-    } else {
-        for resource in RESOURCES {
-            render_resource(pool_cards[resource as usize], resource, "∞", scale);
-        }
-    }
-
-    for resource in RESOURCES {
-        if selected[resource] > 0 {
-            render_selector_button(buttons[resource as usize], button_size);
-        }
-    }
-
-    let mut clickables = [[0.0; 2]; 10];
-    for i in 0..5 {
-        clickables[i] = pool_cards[i];
-    }
-    for i in 5..10 {
-        clickables[i] = buttons[i];
-    }
-    (clickables, button_size)
-}
-
-fn render_discarding(zone: Zone, state: &GameState) -> SelectorPoints {
-    let Zone { height, .. } = zone;
-    let selected = state.discarding.as_ref().unwrap();
-    let (selector_buttons, size) = render_selector_base(zone, selected, Some(&state.get_current_player().get_hand()));
-    SelectorPoints {
-        selector_buttons,
-        selector_button_size: size,
-        conf_buttons: Vec::new(),
-        conf_button_size: 0.25 * height
-    }
-}
-*/
 
 fn render_clickable(pos: [f32; 2], radius: f32, alpha: u8) {
     let thickness = radius / 5.0;
     let color = Color::from_rgba(192, 192, 192, alpha);
     draw_circle(pos[0], pos[1], radius, color);
     draw_circle_lines(pos[0], pos[1], radius, thickness, DARKGRAY);
+}
+
+fn render_choosing_victim(coords: &ScreenCoords, state: &GameState) {
+    let corners = &coords.corners;
+    let radius = coords.build_clickable_radius;
+    let alpha = 0;
+    for idx in 0..CORNER_COORDS.len() {
+        let corner = CORNER_COORDS[idx];
+        if state.board.is_robbable(corner, state.get_current_color()) {
+            let pos = corners[idx];
+            render_clickable(pos, radius, alpha);
+        }
+    }
 }
 
 fn render_moving_robber(coords: &ScreenCoords, state: &GameState) {
@@ -502,17 +414,130 @@ fn render_building_city(coords: &ScreenCoords, state: &GameState, color: PlayerC
     }
 }
 
+fn render_selector_bg(coords: &ScreenCoords) {
+    let [x, y, w, h] = coords.selector_zone;
+    draw_rectangle(x, y, w, h, BEIGE);
+}
+
+fn render_selector_bottom(coords: &ScreenCoords, selector: &Selector) {
+    let cards = &coords.selector_bottom_cards;
+    let selectors = &coords.selector_bottom_selectors;
+    let size = &coords.selector_card_size;
+    let selector_size = coords.selector_selector_size;
+    let hand = selector.get_bottom();
+
+    for idx in 0..RESOURCES.len() {
+        let res = RESOURCES[idx];
+        if hand[res] > 0 {
+            render_resource(&cards[idx], size, res, hand[res].to_string().as_str());
+        }
+        render_selector_selector(&selectors[idx], selector_size, res);
+    }
+}
+
+fn render_selector_selector(pos: &[f32; 2], size: f32, resource: Resource) {
+    let &[x, y] = pos;
+    let thickness = size / 14.0;
+
+    draw_rectangle(x, y, size, size, resource.into());
+    draw_rectangle_lines(x, y, size, size, thickness, BLACK);
+}
+
+fn render_selector_top(coords: &ScreenCoords, selector: &Selector) {
+    let cards = &coords.selector_top_cards;
+    let selectors = &coords.selector_top_selectors;
+    let card_size = &coords.selector_card_size;
+    let selector_size = coords.selector_selector_size;
+    let hand = selector.get_top().unwrap();
+
+    for idx in 0..RESOURCES.len() {
+        let res = RESOURCES[idx];
+        if hand[res] > 0 {
+            render_resource(&cards[idx], card_size, res, hand[res].to_string().as_str());
+        }
+        render_selector_selector(&selectors[idx], selector_size, res);
+    }
+}
+
+fn render_confirm(coords: &ScreenCoords, state: &GameState) {
+    let &[x, y] = &coords.selector_buttons[1];
+    let size = coords.selector_button_size;
+    let thickness = coords.hex_size / 20.0;
+
+    let text_x = x + 0.25 * size;
+    let text_y = y + 0.7 * size;
+    let font_size = size;
+
+    let color = if state.can_execute_selector() {WHITE} else {GRAY};
+
+    draw_rectangle(x, y, size, size, color);
+    draw_rectangle_lines(x, y, size, size, thickness, BLACK);
+    draw_text("C", text_x, text_y, font_size, BLACK);
+}
+
+fn render_cancel(coords: &ScreenCoords) {
+    let &[x, y] = &coords.selector_buttons[0];
+    let size = coords.selector_button_size;
+    let thickness = coords.hex_size / 20.0;
+
+    let text_x = x + 0.25 * size;
+    let text_y = y + 0.7 * size;
+    let font_size = size;
+
+    draw_rectangle(x, y, size, size, WHITE);
+    draw_rectangle_lines(x, y, size, size, thickness, BLACK);
+    draw_text("X", text_x, text_y, font_size, BLACK);
+}
+
+fn render_selector(coords: &ScreenCoords, state: &GameState) {
+    let selector = state.get_selector();
+    
+    render_selector_bg(coords);
+    render_selector_bottom(coords, selector);
+    match selector {
+        Selector::Trading(_, _) => render_selector_top(coords, selector),
+        _ => ()
+    };
+    
+    render_confirm(coords, state);
+    match selector {
+        Selector::Discarding(_) => (),
+        _ => render_cancel(coords)
+    };
+}
+
+fn render_trade_button(coords: &ScreenCoords) {
+    let &[x, y] = &coords.trade_button;
+    let size = coords.trade_button_size;
+
+    let thickness = size / 20.0;
+    let text_x = x + 0.07 * size;
+    let text_y = y + 0.6 * size;
+    let font_size = size / 2.5;
+
+    draw_rectangle(x, y, size, size, BEIGE);
+    draw_rectangle_lines(x, y, size, size, thickness, BLACK);
+    draw_text("Trade", text_x, text_y, font_size, BLACK);
+}
+
 fn render_state_dependents(coords: &ScreenCoords, state: &GameState, color: PlayerColor) {
     if !state.is_players_turn(color) {
         return;
     }
+
+    if state.selector.is_some() {
+        render_selector(coords, state);
+    } else {
+        render_trade_button(coords);
+    }
+
     match state.action {
-        Action::Idling => (),
-        Action::Discarding => (), // return Some(render_discarding(selector_zone, state)),
+        Action::ChoosingVictim => render_choosing_victim(coords, state),
         Action::MovingRobber => render_moving_robber(coords, state),
         Action::BuildingRoad => render_building_road(coords, state, color),
         Action::BuildingSettlement => render_building_settlement(coords, state, color),
         Action::BuildingCity => render_building_city(coords, state, color),
+        _ => ()
     }
 }
 
