@@ -943,6 +943,10 @@ impl Player {
         self.longest_road = value;
     }
 
+    pub fn set_road_len(&mut self, value: usize) {
+        self.road_len = value;
+    }
+
     pub fn is_color(&self, color: PlayerColor) -> bool {
         self.color == color
     }
@@ -953,10 +957,6 @@ impl Player {
 
     pub fn must_discard(&self) -> bool {
         self.hand.size() > 7
-    }
-
-    pub fn gain_vp(&mut self) {
-        self.base_vps += 1;
     }
 
     pub fn get_cards(&mut self, new: ResHand) {

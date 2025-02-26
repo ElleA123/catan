@@ -1,7 +1,7 @@
 use macroquad::prelude::*;
 
 use crate::game::{
-    Board, DVCard, Hex, Player, PlayerColor, Port, ResHand, Resource, StructureType,
+    Board, DVCard, Hex, Player, PlayerColor, Port, Resource, StructureType,
     CORNER_COORDS, DV_CARDS, EDGE_COORDS, HEX_COORDS, RESOURCES
 };
 use crate::screen_coords::ScreenCoords;

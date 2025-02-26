@@ -224,36 +224,36 @@ impl From<SetupState> for GameState {
 }
 
 impl GameState {
-    fn new<R: Rng + ?Sized>(num_humans: usize, num_cpus: usize, rng: &mut R) -> GameState {
-        let num_players = num_humans + num_cpus;
+    // fn new<R: Rng + ?Sized>(num_humans: usize, num_cpus: usize, rng: &mut R) -> GameState {
+    //     let num_players = num_humans + num_cpus;
 
-        let board = Board::new(num_players, rng);
-        let players = PLAYER_COLORS
-            .iter().copied()
-            .enumerate().collect::<Vec<(usize, PlayerColor)>>()
-            .choose_multiple(rng, num_players)
-            .map(|&(i, pc)| Player::new(pc, i < num_humans))
-            .collect();
+    //     let board = Board::new(num_players, rng);
+    //     let players = PLAYER_COLORS
+    //         .iter().copied()
+    //         .enumerate().collect::<Vec<(usize, PlayerColor)>>()
+    //         .choose_multiple(rng, num_players)
+    //         .map(|&(i, pc)| Player::new(pc, i < num_humans))
+    //         .collect();
 
-        GameState {
-            num_players,
-            board,
-            players,
-            largest_army: None,
-            largest_army_size: 2,
-            longest_road: None,
-            longest_road_size: 4,
-            current_player: 0,
-            turn_player: 0,
-            action: Action::Idling,
-            roll: None,
-            played_dv: false,
-            selector: None,
-            offered_trades: Vec::with_capacity(3),
-            trade_responses: Vec::with_capacity(3),
-            rng_action: None
-        }
-    }
+    //     GameState {
+    //         num_players,
+    //         board,
+    //         players,
+    //         largest_army: None,
+    //         largest_army_size: 2,
+    //         longest_road: None,
+    //         longest_road_size: 4,
+    //         current_player: 0,
+    //         turn_player: 0,
+    //         action: Action::Idling,
+    //         roll: None,
+    //         played_dv: false,
+    //         selector: None,
+    //         offered_trades: Vec::with_capacity(3),
+    //         trade_responses: Vec::with_capacity(3),
+    //         rng_action: None
+    //     }
+    // }
 
     fn get_current_color(&self) -> PlayerColor {
         self.get_current_player().get_color()
@@ -767,7 +767,7 @@ fn handle_road_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f
         let edge = EDGE_COORDS[idx];
         if state.board.can_place_road(edge, color) {
             state.get_current_player_mut().build_road();
-            state.board.place_road(edge, color);
+            state.build_road(edge);
             state.action = Action::Idling;
         }
     }
@@ -816,14 +816,14 @@ async fn play_one_player_game(num_cpus: usize) {
 
     let mut rng = rand::rng();
 
-    // let state = SetupState::new(1, num_cpus, &mut rng);
-    // let mut state = setup_game(state).await;
+    let state = SetupState::new(1, num_cpus, &mut rng);
+    let mut state = setup_game(state).await;
 
-    let mut state = GameState::new(1, num_cpus, &mut rng);
-    state.board.place_settlement([2, 2, 3], PlayerColor::Blue);
-    state.board.place_settlement([2, 2, 5], PlayerColor::Red);
-    state.board.place_settlement([2, 2, 1], PlayerColor::Orange);
-    state.board.place_settlement([0, 2, 0], PlayerColor::Red);
+    // let mut state = GameState::new(1, num_cpus, &mut rng);
+    // state.board.place_settlement([2, 2, 3], PlayerColor::Blue);
+    // state.board.place_settlement([2, 2, 5], PlayerColor::Red);
+    // state.board.place_settlement([2, 2, 1], PlayerColor::Orange);
+    // state.board.place_settlement([0, 2, 0], PlayerColor::Red);
 
     let mut coords = ScreenCoords::new();
 
