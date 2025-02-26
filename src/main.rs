@@ -116,6 +116,7 @@ pub enum Action {
     BuildingRoad,
     BuildingSettlement,
     BuildingCity,
+    RoadBuilding(bool),
 }
 
 pub enum RngAction {
@@ -340,8 +341,8 @@ impl GameState {
             self.action = Action::Idling;
             return;
         } else if robbable.len() == 1 {
-            self.action = Action::Idling;
             self.rng_action = Some(RngAction::Stealing(robbable.into_iter().nth(0).unwrap()));
+            self.action = Action::Idling;
         } else {
             self.action = Action::ChoosingVictim;
         }
@@ -370,12 +371,45 @@ impl GameState {
         self.get_current_player_mut().build_city();
     }
 
+    fn update_largest_army(&mut self) {
+        let old = self.largest_army.replace(self.get_current_color());
+        self.largest_army_size = self.get_current_player().get_knights();
+        
+        self.get_current_player_mut().set_largest_army(true);
+        if let Some(prev) = old {
+            self.get_player_mut(prev).unwrap().set_largest_army(false);
+        }
+    }
+
+    fn advance_road_building(&mut self) {
+        let placed_once = match self.action {
+            Action::RoadBuilding(placed_once) => placed_once,
+            _ => panic!("advance_road_building(): not road building")
+        };
+
+        if placed_once {
+            self.action = Action::Idling;
+        } else {
+            self.action = Action::RoadBuilding(true);
+        }
+    }
+
     fn play_dv_card(&mut self, card: DVCard) {
         match card {
-            DVCard::Knight => (),
-            DVCard::RoadBuilding => (),
-            DVCard::YearOfPlenty => (),
-            DVCard::Monopoly => (),
+            DVCard::Knight => {
+                self.get_current_player_mut().play_dv_card(DVCard::Knight);
+                if self.get_current_player().get_knights() > self.largest_army_size {
+                    self.update_largest_army();
+                }
+                self.action = Action::MovingRobber;
+            },
+            DVCard::RoadBuilding => self.action = Action::RoadBuilding(false),
+            DVCard::YearOfPlenty => {
+                self.selector = Some(Selector::Yopping(ResHand::new()));
+            },
+            DVCard::Monopoly => {
+                self.selector = Some(Selector::Yopping(ResHand::new()));
+            },
             DVCard::VictoryPoint => (),
         }
     }
@@ -766,7 +800,6 @@ fn handle_road_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f
     if let Some(idx) = maybe_idx {
         let edge = EDGE_COORDS[idx];
         if state.board.can_place_road(edge, color) {
-            state.get_current_player_mut().build_road();
             state.build_road(edge);
             state.action = Action::Idling;
         }
@@ -798,6 +831,20 @@ fn handle_structure_click(state: &mut GameState, coords: &ScreenCoords, mouse_po
     }
 }
 
+fn handle_road_building_click(state: &mut GameState, coords: &ScreenCoords, mouse_pos: (f32, f32)) {
+    let color = state.get_current_color();
+    let radius = coords.build_clickable_radius;
+    if let Some(idx) = coords.edges.iter().position(
+        |pos| mouse_is_on_circle(mouse_pos, *pos, radius)
+    ) {
+        let edge = EDGE_COORDS[idx];
+        if state.board.can_place_road(edge, color) {
+            state.board.place_road(edge, color);
+            state.advance_road_building();
+        }
+    }
+}
+
 fn handle_click(state: &mut GameState, coords: &ScreenCoords) {
     let mouse_pos = mouse_position();
     match state.action {
@@ -808,6 +855,7 @@ fn handle_click(state: &mut GameState, coords: &ScreenCoords) {
         Action::BuildingRoad => handle_road_click(state, coords, mouse_pos),
         Action::BuildingSettlement => handle_structure_click(state, coords, mouse_pos, StructureType::Settlement),
         Action::BuildingCity => handle_structure_click(state, coords, mouse_pos, StructureType::City),
+        Action::RoadBuilding(_) => handle_road_building_click(state, coords, mouse_pos)
     }
 }
 
