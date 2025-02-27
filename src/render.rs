@@ -537,6 +537,7 @@ fn render_state_dependents(coords: &ScreenCoords, state: &GameState, color: Play
         Action::BuildingRoad => render_building_road(coords, state, color),
         Action::BuildingSettlement => render_building_settlement(coords, state, color),
         Action::BuildingCity => render_building_city(coords, state, color),
+        Action::RoadBuilding(_) => render_building_road(coords, state, color),
         _ => ()
     }
 }

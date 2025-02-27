@@ -403,12 +403,15 @@ impl GameState {
                 }
                 self.action = Action::MovingRobber;
             },
-            DVCard::RoadBuilding => self.action = Action::RoadBuilding(false),
+            DVCard::RoadBuilding => {
+                self.get_current_player_mut().play_dv_card(DVCard::RoadBuilding);
+                self.action = Action::RoadBuilding(false);
+            },
             DVCard::YearOfPlenty => {
                 self.selector = Some(Selector::Yopping(ResHand::new()));
             },
             DVCard::Monopoly => {
-                self.selector = Some(Selector::Yopping(ResHand::new()));
+                self.selector = Some(Selector::Monopolizing(ResHand::new()));
             },
             DVCard::VictoryPoint => (),
         }
@@ -475,6 +478,37 @@ impl GameState {
         }
     }
 
+    fn can_trade_with_bank(&self, give: ResHand, get: ResHand) -> bool {
+        if !self.board.bank.can_discard(get) || give.count_nonzero() != 1 {
+            return false;
+        }
+
+        let item_given = give.nth_nonzero(0).unwrap();
+        let color = self.get_current_color();
+        let ports = PORT_COORDS.iter().enumerate().filter(|(_, [r, q, e])|
+            self.board.structure_is_color([*r, *q, *e], color)
+            || self.board.structure_is_color([*r, *q, (*e + 5) % 6], color)
+        ).map(|(idx, _)| self.board.ports[idx]);
+
+        let mut rate = 4;
+        for port in ports {
+            match port {
+                Port::ThreeForOne => {
+                    if rate == 4 {
+                        rate = 3;
+                    }
+                }
+                Port::TwoForOne(res) => {
+                    if res == item_given {
+                        rate = 2;
+                        break;
+                    }
+                }
+            }
+        }
+        give.size() == rate * get.size()
+    }
+
     fn can_execute_selector(&self) -> bool {
         match self.selector.as_ref().unwrap() {
             Selector::Discarding(hand) =>
@@ -498,7 +532,14 @@ impl GameState {
     }
 
     fn execute_trade(&mut self, give: ResHand, get: ResHand) {
-        self.offered_trades.push((give, get));
+        if self.can_trade_with_bank(give, get) {
+            self.board.bank.discard(get);
+            self.board.bank.add(give);
+            self.get_current_player_mut().discard_cards(give);
+            self.get_current_player_mut().get_cards(get);
+        } else {
+            self.offered_trades.push((give, get));
+        }
         self.selector = Some(Selector::Trading(ResHand::new(), ResHand::new()))
     }
 

@@ -34,7 +34,7 @@ impl Into<macroquad::color::Color> for PlayerColor {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Resource {
     Wood,
     Brick,
